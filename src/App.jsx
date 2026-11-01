@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './styles.css'
-
-const FRONTEND_ONLY = import.meta.env.DEV && import.meta.env.VITE_FRONTEND_ONLY === 'true'
+const FRONTEND_ONLY =
+  import.meta.env.VITE_FRONTEND_ONLY === 'true' ||
+  (import.meta.env.DEV && import.meta.env.VITE_FRONTEND_ONLY !== 'false')
 const STATUSES = ['To Do', 'In Progress', 'Review', 'Done']
 const STATUS_COLORS = { 'To Do': '#94a3b8', 'In Progress': '#3b82f6', Review: '#f59e0b', Done: '#10b981' }
 const PRIORITIES = ['Low', 'Normal', 'High', 'Urgent']
@@ -65,7 +66,8 @@ const fmtDay = (timestamp, options = { weekday: 'short', day: 'numeric', month: 
 const projectName = (projects, id) => projects.find((project) => project.id === id)?.name || id || '—'
 
 async function request(path, init) {
-  const response = await fetch(path, { cache: 'no-store', ...init })
+  const base = import.meta.env.VITE_API_BASE_URL || ''
+  const response = await fetch(`${base}${path}`, { cache: 'no-store', ...init })
   const body = await response.json().catch(() => ({}))
   if (response.status === 401) {
     window.dispatchEvent(new CustomEvent('taskflow:locked'))
@@ -135,10 +137,12 @@ function PinGate({ auth, demoPin, onPinCreated, onAuthenticated }) {
     setMessage('Checking…')
     try {
       if (auth.frontendOnly) {
+        const stored = demoPin || (typeof window !== 'undefined' ? localStorage.getItem('taskflow_demo_pin') : '') || ''
         if (setup) {
+          try { localStorage.setItem('taskflow_demo_pin', pin) } catch {}
           onPinCreated(pin)
           onAuthenticated({ authed: true, configured: true, frontendOnly: true })
-        } else if (pin === demoPin) {
+        } else if (pin === demoPin || (stored && pin === stored)) {
           onAuthenticated({ ...auth, authed: true })
         } else {
           setMessage('Incorrect PIN.')
@@ -423,7 +427,9 @@ function ImportForm({ people, projects, onClose, onImport }) {
 
 export function App() {
   const [auth, setAuth] = useState(null)
-  const [demoPin, setDemoPin] = useState('')
+  const [demoPin, setDemoPin] = useState(() => {
+    try { return localStorage.getItem('taskflow_demo_pin') || '' } catch { return '' }
+  })
   const [page, setPage] = useState('dash')
   const [tasks, setTasks] = useState([])
   const [history, setHistory] = useState([])
@@ -501,12 +507,18 @@ export function App() {
 
   useEffect(() => {
     let active = true
+    const savedPin = typeof window !== 'undefined' ? localStorage.getItem('taskflow_demo_pin') : null
     if (FRONTEND_ONLY) {
-      setAuth({ configured: false, authed: false, frontendOnly: true })
+      setAuth({ configured: Boolean(savedPin), authed: false, frontendOnly: true })
     } else {
       request('/api/auth')
         .then((data) => { if (active) setAuth(data) })
-        .catch((cause) => { if (active) { setAuth({ configured: true, authed: false }); showError(cause.message) } })
+        .catch((cause) => {
+          if (active) {
+            console.warn('Backend API unavailable, falling back to frontend-only mode:', cause.message)
+            setAuth({ configured: Boolean(savedPin), authed: false, frontendOnly: true })
+          }
+        })
     }
     const lockHandler = () => setAuth((current) => ({ ...current, authed: false }))
     window.addEventListener('taskflow:locked', lockHandler)
@@ -877,6 +889,17 @@ export function App() {
     if (current === null) return
     const next = window.prompt('New PIN (4–8 digits)')
     if (next === null) return
+    if (auth?.frontendOnly) {
+      const stored = demoPin || (typeof window !== 'undefined' && localStorage.getItem('taskflow_demo_pin')) || ''
+      if (stored && current !== stored) {
+        showError('Current PIN is incorrect.')
+        return
+      }
+      setDemoPin(next)
+      try { localStorage.setItem('taskflow_demo_pin', next) } catch {}
+      showToast('PIN changed.')
+      return
+    }
     try {
       await request('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'change', current, pin: next }) })
       showToast('PIN changed.')
