@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './styles.css'
 import { Icon } from './icons.jsx'
+import { FoodicsManagement, FoodicsManagementNav, FOODICS_SECTIONS } from './FoodicsManagement.jsx'
 const FRONTEND_ONLY =
   import.meta.env.VITE_FRONTEND_ONLY === 'true' ||
   (import.meta.env.DEV && import.meta.env.VITE_FRONTEND_ONLY !== 'false')
@@ -9,12 +10,20 @@ const STATUS_COLORS = { 'To Do': '#94a3b8', 'In Progress': '#3b82f6', Review: '#
 const PRIORITIES = ['Low', 'Normal', 'High', 'Urgent']
 const PRIORITY_COLORS = { Low: '#94a3b8', Normal: '#3b82f6', High: '#f59e0b', Urgent: '#ef4444' }
 const FRONTEND_REMEMBER_KEY = 'taskflow_demo_remember_until'
+const FRONTEND_SESSION_USER_KEY = 'taskflow_demo_session_user'
+const ROLE_USERS_KEY = 'taskflow_role_users'
 const FRONTEND_REMEMBER_DURATION = 30 * 24 * 60 * 60 * 1000
-const rememberFrontendSession = () => {
-  try { localStorage.setItem(FRONTEND_REMEMBER_KEY, String(Date.now() + FRONTEND_REMEMBER_DURATION)) } catch {}
+const rememberFrontendSession = (userId = 'admin') => {
+  try {
+    localStorage.setItem(FRONTEND_REMEMBER_KEY, String(Date.now() + FRONTEND_REMEMBER_DURATION))
+    localStorage.setItem(FRONTEND_SESSION_USER_KEY, userId)
+  } catch {}
 }
 const clearFrontendRememberedSession = () => {
-  try { localStorage.removeItem(FRONTEND_REMEMBER_KEY) } catch {}
+  try {
+    localStorage.removeItem(FRONTEND_REMEMBER_KEY)
+    localStorage.removeItem(FRONTEND_SESSION_USER_KEY)
+  } catch {}
 }
 const hasFrontendRememberedSession = () => {
   try {
@@ -67,7 +76,12 @@ const PAGES = [
   ['projects', 'projects', 'Projects'],
   ['team', 'team', 'Team & KPIs'],
   ['hr', 'hr', 'HR'],
+  ['foodics', 'folder', 'Foodics Management'],
+  ['roles', 'roles', 'Roles'],
 ]
+const ROLE_PERMISSION_PAGES = PAGES.filter(([key]) => key !== 'roles')
+const ALL_ROLE_PERMISSIONS = [...ROLE_PERMISSION_PAGES.map(([key]) => key), 'gulf']
+const ROLE_PERMISSION_LABELS = Object.fromEntries([...ROLE_PERMISSION_PAGES, ['gulf', 'Natheel Gulf']].map(([key, , label]) => [key, label || 'Natheel Gulf']))
 const NATHEEL_GULF_SECTIONS = [
   ['hajiss', 'Hajiss cafe Holding Block'],
   ['odin', 'ÖDÜN Pide'],
@@ -160,7 +174,20 @@ function Field({ label, children }) {
   return <label className="field">{label}{children}</label>
 }
 
-function PinGate({ auth, demoPin, onPinCreated, onAuthenticated }) {
+function loadRoleUsers() {
+  try {
+    const stored = localStorage.getItem(ROLE_USERS_KEY)
+    const users = stored ? JSON.parse(stored) : []
+    if (!Array.isArray(users) || users.some((user) => !user || typeof user.id !== 'string' || typeof user.name !== 'string' || !/^\d{4}$/.test(user.pin) || !Array.isArray(user.permissions))) {
+      throw new Error('The saved user list is not valid.')
+    }
+    return { users, error: '' }
+  } catch (error) {
+    return { users: [], error: `Could not load saved users: ${error.message}` }
+  }
+}
+
+function PinGate({ auth, demoPin, roleUsers, onPinCreated, onAuthenticated }) {
   const [pin, setPin] = useState('')
   const [firstPin, setFirstPin] = useState('')
   const [message, setMessage] = useState('')
@@ -188,16 +215,29 @@ function PinGate({ auth, demoPin, onPinCreated, onAuthenticated }) {
     try {
       if (auth.frontendOnly) {
         const stored = demoPin || (typeof window !== 'undefined' ? localStorage.getItem('taskflow_demo_pin') : '') || ''
+        const roleUser = pin.length === 4 ? roleUsers.find((user) => user.pin === pin) : null
+        if (!setup && roleUser && pin !== stored) {
+          if (remember) rememberFrontendSession(roleUser.id)
+          else clearFrontendRememberedSession()
+          onAuthenticated({
+            ...auth,
+            authed: true,
+            configured: true,
+            frontendOnly: true,
+            activeUser: { ...roleUser, isAdmin: false },
+          })
+          return
+        }
         if (setup) {
           try { localStorage.setItem('taskflow_demo_pin', pin) } catch {}
           onPinCreated(pin)
           if (remember) rememberFrontendSession()
           else clearFrontendRememberedSession()
-          onAuthenticated({ authed: true, configured: true, frontendOnly: true })
+          onAuthenticated({ authed: true, configured: true, frontendOnly: true, activeUser: { id: 'admin', name: 'Admin', isAdmin: true } })
         } else if (pin === demoPin || (stored && pin === stored)) {
           if (remember) rememberFrontendSession()
           else clearFrontendRememberedSession()
-          onAuthenticated({ ...auth, authed: true })
+          onAuthenticated({ ...auth, authed: true, activeUser: { id: 'admin', name: 'Admin', isAdmin: true } })
         } else {
           setMessage('Incorrect PIN.')
         }
@@ -225,7 +265,7 @@ function PinGate({ auth, demoPin, onPinCreated, onAuthenticated }) {
       <form className="lk" onSubmit={submit}>
         <img src="/img/logo.png" alt="" />
         <h1>Natheelco TaskFlow</h1>
-        <p className="mu">{setup ? firstPin ? 'Confirm your new PIN' : 'Create a PIN (4–8 digits) to protect this dashboard' : 'Enter your PIN to unlock the dashboard'}</p>
+        <p className="mu">{setup ? firstPin ? 'Confirm your new PIN' : 'Create a PIN (4–8 digits) to protect this dashboard' : 'Enter your dashboard PIN or your 4-digit user PIN'}</p>
         <input
           aria-label="PIN"
           autoComplete={setup ? 'new-password' : 'current-password'}
@@ -247,6 +287,8 @@ function PinGate({ auth, demoPin, onPinCreated, onAuthenticated }) {
           <button className="x" onClick={() => setPin((current) => current.slice(0, -1))} type="button">⌫</button>
         </div>
         <label className="mu remember"><input checked={remember} onChange={(event) => setRemember(event.target.checked)} type="checkbox" /> Remember this device for 30 days</label>
+        {auth.frontendOnly && roleUsers.length > 0 && <p className="pin-user-hint">{roleUsers.length} user PIN{roleUsers.length === 1 ? '' : 's'} available</p>}
+        {!auth.frontendOnly && <p className="pin-user-hint">User PIN login requires backend authentication support.</p>}
         <Button disabled={busy || pin.length < 4} primary type="submit">{busy ? 'Please wait…' : setup ? 'Continue' : 'Unlock'}</Button>
       </form>
     </div>
@@ -549,12 +591,123 @@ function ImportForm({ people, projects, onClose, onImport }) {
   )
 }
 
+function RolesPage({ users, error, masterPin, onSaveUsers }) {
+  const [editingId, setEditingId] = useState('')
+  const [name, setName] = useState('')
+  const [pin, setPin] = useState('')
+  const [permissions, setPermissions] = useState([])
+  const [formError, setFormError] = useState('')
+
+  function resetForm() {
+    setEditingId('')
+    setName('')
+    setPin('')
+    setPermissions([])
+    setFormError('')
+  }
+
+  function editUser(user) {
+    setEditingId(user.id)
+    setName(user.name)
+    setPin('')
+    setPermissions(user.permissions.filter((permission) => ALL_ROLE_PERMISSIONS.includes(permission)))
+    setFormError('')
+  }
+
+  function submit(event) {
+    event.preventDefault()
+    const cleanName = name.trim()
+    const existing = users.find((user) => user.id === editingId)
+    const nextPin = pin || existing?.pin || ''
+    if (!cleanName) return setFormError('Enter the user’s name.')
+    if (!/^\d{4}$/.test(nextPin)) return setFormError('The PIN must be exactly 4 digits.')
+    if (masterPin && nextPin === masterPin) return setFormError('Choose a PIN different from the dashboard admin PIN.')
+    if (users.some((user) => user.id !== editingId && user.pin === nextPin)) return setFormError('Each user must have a unique PIN.')
+
+    const user = {
+      id: existing?.id || globalThis.crypto?.randomUUID?.() || `user-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      name: cleanName,
+      pin: nextPin,
+      permissions: ALL_ROLE_PERMISSIONS.filter((permission) => permissions.includes(permission)),
+    }
+    const nextUsers = existing
+      ? users.map((item) => item.id === existing.id ? user : item)
+      : [...users, user]
+    if (onSaveUsers(nextUsers)) resetForm()
+  }
+
+  function removeUser(user) {
+    if (!window.confirm(`Remove ${user.name} and their dashboard access?`)) return
+    onSaveUsers(users.filter((item) => item.id !== user.id))
+    if (editingId === user.id) resetForm()
+  }
+
+  return (
+    <section className="roles-page">
+      <header className="top">
+        <div><h1><Icon name="roles" size={23} /> Roles &amp; permissions</h1><p className="mu">Create user PINs and choose which dashboard sections each person can open.</p></div>
+      </header>
+      <div className="roles-notice"><Icon name="info" size={17} /><span>Users and permissions are saved in this browser. Individual PIN login is available in frontend-only mode; the connected backend currently supports the dashboard admin PIN only.</span></div>
+      {error && <div className="roles-error" role="alert">{error}</div>}
+      <div className="roles-layout">
+        <form className="card roles-form" onSubmit={submit}>
+          <div className="roles-form-heading"><span className="roles-form-icon"><Icon name={editingId ? 'edit' : 'user-plus'} size={18} /></span><div><h2>{editingId ? 'Edit user' : 'Add a user'}</h2><p className="mu">{editingId ? 'Update access or set a new PIN.' : 'Give a user a unique 4-digit login PIN.'}</p></div></div>
+          <Field label="User name"><input autoComplete="off" maxLength={70} onChange={(event) => setName(event.target.value)} placeholder="e.g. Hajar Hanafi" required value={name} /></Field>
+          <Field label={editingId ? 'New 4-digit PIN (leave blank to keep current)' : '4-digit PIN'}>
+            <input autoComplete="new-password" inputMode="numeric" maxLength={4} onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="••••" required={!editingId} type="password" value={pin} />
+          </Field>
+          <fieldset className="roles-permissions">
+            <legend>Dashboard sections</legend>
+            <div className="roles-permission-grid">
+              {ALL_ROLE_PERMISSIONS.map((permission) => (
+                <label className="roles-permission-option" key={permission}>
+                  <input checked={permissions.includes(permission)} onChange={(event) => setPermissions((current) => event.target.checked ? [...current, permission] : current.filter((value) => value !== permission))} type="checkbox" />
+                  <span>{ROLE_PERMISSION_LABELS[permission]}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          {formError && <p className="roles-error" role="alert">{formError}</p>}
+          <div className="roles-form-actions">
+            {editingId && <Button onClick={resetForm} type="button">Cancel</Button>}
+            <Button primary type="submit"><Icon name={editingId ? 'check' : 'user-plus'} size={15} /> {editingId ? 'Save changes' : 'Add user'}</Button>
+          </div>
+        </form>
+
+        <section aria-label="Dashboard users" className="card roles-list">
+          <div className="roles-list-heading"><div><h2>Users</h2><p className="mu">{users.length} user{users.length === 1 ? '' : 's'} with PIN access</p></div><span className="roles-count">{users.length}</span></div>
+          {users.length ? <div className="roles-user-list">{users.map((user) => {
+            const userPermissions = user.permissions.filter((permission) => ALL_ROLE_PERMISSIONS.includes(permission))
+            return (
+              <article className="roles-user" key={user.id}>
+                <div className="roles-user-avatar"><Icon name="user" size={19} /></div>
+                <div className="roles-user-main">
+                  <div className="roles-user-heading"><strong>{user.name}</strong><span className="roles-pin" aria-label="PIN saved">••••</span></div>
+                  <div className="roles-user-permissions">{userPermissions.length ? userPermissions.map((permission) => <span className="roles-tag" key={permission}>{ROLE_PERMISSION_LABELS[permission]}</span>) : <span className="roles-no-access">No sections assigned</span>}</div>
+                </div>
+                <div className="roles-user-actions">
+                  <button aria-label={`Edit ${user.name}`} className="roles-icon-button" onClick={() => editUser(user)} title="Edit permissions" type="button"><Icon name="edit" size={15} /></button>
+                  <button aria-label={`Remove ${user.name}`} className="roles-icon-button danger" onClick={() => removeUser(user)} title="Remove user" type="button"><Icon name="trash" size={15} /></button>
+                </div>
+              </article>
+            )
+          })}</div> : <div className="roles-empty"><span><Icon name="users" size={23} /></span><b>No users added yet</b><p>Add a user and assign their dashboard sections.</p></div>}
+        </section>
+      </div>
+    </section>
+  )
+}
+
 export function App() {
   const [auth, setAuth] = useState(null)
+  const [roleStore, setRoleStore] = useState(loadRoleUsers)
+  const roleUsers = roleStore.users
   const [demoPin, setDemoPin] = useState(() => {
     try { return localStorage.getItem('taskflow_demo_pin') || '' } catch { return '' }
   })
   const [page, setPage] = useState('dash')
+  const [foodicsSection, setFoodicsSection] = useState('reports')
+  const [foodicsNavOpen, setFoodicsNavOpen] = useState(true)
   const [natheelGulfOpen, setNatheelGulfOpen] = useState(false)
   const [gulfActiveSection, setGulfActiveSection] = useState('files')
   const [gulfNodes, setGulfNodes] = useState(GULF_INITIAL_NODES)
@@ -638,15 +791,22 @@ export function App() {
   useEffect(() => {
     let active = true
     const savedPin = typeof window !== 'undefined' ? localStorage.getItem('taskflow_demo_pin') : null
+    const savedUserId = typeof window !== 'undefined' ? localStorage.getItem(FRONTEND_SESSION_USER_KEY) || 'admin' : 'admin'
+    const rememberedUser = savedUserId === 'admin'
+      ? { id: 'admin', name: 'Admin', isAdmin: true }
+      : roleUsers.find((user) => user.id === savedUserId)
+    const hasRememberedSession = hasFrontendRememberedSession()
+    const remembered = Boolean(savedPin && rememberedUser && hasRememberedSession)
+    if (savedPin && !rememberedUser && hasRememberedSession) clearFrontendRememberedSession()
     if (FRONTEND_ONLY) {
-      setAuth({ configured: Boolean(savedPin), authed: Boolean(savedPin && hasFrontendRememberedSession()), frontendOnly: true })
+      setAuth({ configured: Boolean(savedPin), authed: remembered, frontendOnly: true, activeUser: rememberedUser })
     } else {
       request('/api/auth')
         .then((data) => { if (active) setAuth(data) })
         .catch((cause) => {
           if (active) {
             console.warn('Backend API unavailable, falling back to frontend-only mode:', cause.message)
-            setAuth({ configured: Boolean(savedPin), authed: Boolean(savedPin && hasFrontendRememberedSession()), frontendOnly: true })
+            setAuth({ configured: Boolean(savedPin), authed: remembered, frontendOnly: true, activeUser: rememberedUser })
           }
         })
     }
@@ -657,6 +817,17 @@ export function App() {
     window.addEventListener('taskflow:locked', lockHandler)
     return () => { active = false; window.removeEventListener('taskflow:locked', lockHandler) }
   }, [showError])
+
+  function saveRoleUsers(users) {
+    try {
+      localStorage.setItem(ROLE_USERS_KEY, JSON.stringify(users))
+      setRoleStore({ users, error: '' })
+      return true
+    } catch (cause) {
+      setRoleStore((current) => ({ ...current, error: `Could not save users: ${cause.message}` }))
+      return false
+    }
+  }
 
   useEffect(() => {
     if (!auth?.authed || auth.frontendOnly) return undefined
@@ -674,6 +845,12 @@ export function App() {
     const sync = window.setInterval(() => { if (!document.hidden) syncClickup() }, 30000)
     return () => { active = false; window.clearInterval(poll); window.clearInterval(sync) }
   }, [auth?.authed, auth?.frontendOnly, refresh, showError, syncClickup])
+
+  useEffect(() => {
+    const user = auth?.activeUser
+    if (!auth?.authed || !user || user.isAdmin || user.permissions?.includes(page)) return
+    setPage(user.permissions?.find((permission) => ALL_ROLE_PERMISSIONS.includes(permission)) || 'dash')
+  }, [auth?.activeUser, auth?.authed, page])
 
   const projects = useMemo(() => {
     const configured = config.projects || DEFAULT_PROJECTS
@@ -934,11 +1111,22 @@ export function App() {
   }, [auth?.authed, auth?.frontendOnly, realMeetings])
 
   if (!auth) return <div id="lock"><div className="lk">Connecting to TaskFlow…</div></div>
-  if (!auth.authed) return <PinGate auth={auth} demoPin={demoPin} onPinCreated={setDemoPin} onAuthenticated={setAuth} />
+  if (!auth.authed) return <PinGate auth={auth} demoPin={demoPin} roleUsers={roleUsers} onPinCreated={setDemoPin} onAuthenticated={(session) => {
+    setAuth(session)
+    const permissions = session.activeUser?.permissions || []
+    setPage(session.activeUser?.isAdmin ? 'dash' : permissions[0] || 'dash')
+  }} />
 
+  const activeUser = auth.activeUser || { id: 'admin', name: 'Admin', isAdmin: true }
+  const canAccessPage = (pageKey) => activeUser.isAdmin || (pageKey === 'gulf'
+    ? activeUser.permissions?.includes('gulf')
+    : pageKey !== 'roles' && activeUser.permissions?.includes(pageKey))
+  const visiblePages = PAGES.filter(([key]) => key !== 'foodics' && canAccessPage(key))
   const selectedProject = projects.find((project) => project.id === filters.project)
   const filteredClickup = visibleClickup
-  const pageTitle = page === 'gulf' ? 'Natheel Gulf' : PAGES.find((item) => item[0] === page)?.[2] || 'CEO Dashboard'
+  const pageTitle = page === 'gulf' ? 'Natheel Gulf' : page === 'foodics'
+    ? `Foodics Management · ${FOODICS_SECTIONS.find((section) => section.id === foodicsSection)?.shortLabel || 'Reports'}`
+    : PAGES.find((item) => item[0] === page)?.[2] || 'CEO Dashboard'
 
   function Dashboard() {
     const completed = scopedTasks.filter((task) => task.status === 'Done')
@@ -1037,6 +1225,14 @@ export function App() {
     const next = window.prompt('New PIN (4–8 digits)')
     if (next === null) return
     if (auth?.frontendOnly) {
+      if (!/^\d{4,8}$/.test(next)) {
+        showError('PIN must be 4–8 digits.')
+        return
+      }
+      if (roleUsers.some((user) => user.pin === next)) {
+        showError('The admin PIN must be different from every user PIN.')
+        return
+      }
       const stored = demoPin || (typeof window !== 'undefined' && localStorage.getItem('taskflow_demo_pin')) || ''
       if (stored && current !== stored) {
         showError('Current PIN is incorrect.')
@@ -1054,8 +1250,11 @@ export function App() {
   }
 
   function MainPage() {
+    if (!canAccessPage(page)) return <section className="card roles-access-denied"><span><Icon name="lock" size={20} /></span><h1>Access not assigned</h1><p className="mu">Your account doesn’t have permission to open this dashboard section.</p></section>
     if (page === 'dash') return Dashboard()
+    if (page === 'roles') return <RolesPage error={roleStore.error} masterPin={demoPin} onSaveUsers={saveRoleUsers} users={roleUsers} />
     if (page === 'gulf') return <GulfAssetPage activeSection={gulfActiveSection} assets={gulfAssets} config={config} nodes={gulfNodes} onLock={logout} onToast={showToast} selectedNode={gulfSelectedNode} setActiveSection={setGulfActiveSection} setAssets={setGulfAssets} setNodes={setGulfNodes} setSelectedNode={setGulfSelectedNode} />
+    if (page === 'foodics') return <FoodicsManagement activeSection={foodicsSection} />
     if (page === 'tasks' || page === 'day') {
       const mine = page === 'day'
       const visible = (mine ? allTasks.filter((task) => task.status !== 'Done' && (!calendarPerson || calendarPerson === 'CEO' || (task.assignees || []).includes(calendarPerson))) : scopedTasks)
@@ -1149,7 +1348,7 @@ export function App() {
               </button>
             </div>
             <nav className="mobile-drawer-nav">
-              {PAGES.map(([key, icon, label]) => (
+              {visiblePages.map(([key, icon, label]) => (
                 <button
                   className={`mobile-drawer-item nav-item nav-${key}${page === key ? ' on' : ''}`}
                   key={key}
@@ -1161,7 +1360,7 @@ export function App() {
                   {page === key && <span className="drawer-active-dot" />}
                 </button>
               ))}
-              <NatheelGulfNav
+              {canAccessPage('gulf') && <NatheelGulfNav
                 filters={filters}
                 id="natheel-gulf-mobile-sections"
                 mobile
@@ -1177,7 +1376,15 @@ export function App() {
                 page={page}
                 projects={projects}
                 selectedNode={gulfSelectedNode}
-              />
+              />}
+              {canAccessPage('foodics') && <FoodicsManagementNav
+                activeSection={foodicsSection}
+                mobile
+                onSelect={(section) => { setFoodicsSection(section); setPage('foodics'); setMobileMenuOpen(false) }}
+                onToggle={() => setFoodicsNavOpen((open) => !open)}
+                open={foodicsNavOpen}
+                page={page}
+              />}
               <button
                 className="mobile-drawer-item nav-item nav-lock lkb"
                 onClick={() => { setMobileMenuOpen(false); logout() }}
@@ -1187,7 +1394,7 @@ export function App() {
                 <span className="drawer-label">Lock Dashboard</span>
               </button>
             </nav>
-            <div className="mobile-drawer-projects">
+            {canAccessPage('tasks') && <div className="mobile-drawer-projects">
               <h4>Filter Tasks by Project</h4>
               <div className="mobile-projects-grid">
                 {projects.map((project) => (
@@ -1206,7 +1413,7 @@ export function App() {
                   </button>
                 ))}
               </div>
-            </div>
+            </div>}
           </div>
         </div>
       )}
@@ -1215,13 +1422,13 @@ export function App() {
         <aside>
           <div className="brand">{config.logo ? <img src={config.logo} alt="" /> : <div className="logo">N</div>}<span>Natheelco<br /><span className="mu">TaskFlow</span></span></div>
           <nav aria-label="Main navigation" className="primary-nav">
-            {PAGES.map(([key, icon, label]) => (
+            {visiblePages.map(([key, icon, label]) => (
               <button className={`nav-item nav-${key}${page === key ? ' on' : ''}`} key={key} onClick={() => setPage(key)} type="button">
                 <span className="nav-icon"><Icon name={icon} size={16} /></span>
                 <span className="nav-label">{label}</span>
               </button>
             ))}
-            <NatheelGulfNav
+            {canAccessPage('gulf') && <NatheelGulfNav
               filters={filters}
               id="natheel-gulf-desktop-sections"
               onSelect={(projectId) => {
@@ -1235,32 +1442,43 @@ export function App() {
               page={page}
               projects={projects}
               selectedNode={gulfSelectedNode}
-            />
+            />}
+            {canAccessPage('foodics') && <FoodicsManagementNav
+              activeSection={foodicsSection}
+              onSelect={(section) => { setFoodicsSection(section); setPage('foodics') }}
+              onToggle={() => setFoodicsNavOpen((open) => !open)}
+              open={foodicsNavOpen}
+              page={page}
+            />}
             <button className="nav-item nav-lock lkb" onClick={logout} type="button">
               <span className="nav-icon"><Icon name="lock" size={16} /></span>
               <span className="nav-label">Lock</span>
             </button>
           </nav>
           <div className="sidebar-extra">
-            <div className="sidebar-section-head">
-              <h4>ClickUp</h4>
-              <button className="sidebar-sync-btn" onClick={syncClickupNow} title="Sync ClickUp now" type="button"><Icon name="sync" size={11} /> Sync</button>
-            </div>
-            <div className="sidebar-meta">{clickupStatus}{lastSync ? <> • {Math.max(1, Math.round((Date.now() - lastSync) / 60_000))}m ago</> : null}</div>
-            {(clickup.workspaces || []).map((workspace) => <a className="ws" href={workspace.url} key={workspace.id} rel="noreferrer" target="_blank" title={'Open ' + workspace.name + ' in ClickUp'}><Icon name="external-link" size={11} /> {workspace.name}</a>)}
-            <h4>Projects</h4>
-            <div className="sidebar-projects-list">
-              {projects.map((project) => (
-                <button className={filters.project === project.id && page === 'tasks' ? 'on project-btn' : 'project-btn'} key={project.id} onClick={() => { setFilters({ ...filters, project: project.id }); setPage('tasks') }} type="button">
-                  <span className="dot" style={{ background: project.color }} />
-                  <span className="project-btn-label">{project.name}</span>
-                </button>
-              ))}
-            </div>
+            {canAccessPage('clickup') && <>
+              <div className="sidebar-section-head">
+                <h4>ClickUp</h4>
+                <button className="sidebar-sync-btn" onClick={syncClickupNow} title="Sync ClickUp now" type="button"><Icon name="sync" size={11} /> Sync</button>
+              </div>
+              <div className="sidebar-meta">{clickupStatus}{lastSync ? <> • {Math.max(1, Math.round((Date.now() - lastSync) / 60_000))}m ago</> : null}</div>
+              {(clickup.workspaces || []).map((workspace) => <a className="ws" href={workspace.url} key={workspace.id} rel="noreferrer" target="_blank" title={'Open ' + workspace.name + ' in ClickUp'}><Icon name="external-link" size={11} /> {workspace.name}</a>)}
+            </>}
+            {canAccessPage('tasks') && <>
+              <h4>Projects</h4>
+              <div className="sidebar-projects-list">
+                {projects.map((project) => (
+                  <button className={filters.project === project.id && page === 'tasks' ? 'on project-btn' : 'project-btn'} key={project.id} onClick={() => { setFilters({ ...filters, project: project.id }); setPage('tasks') }} type="button">
+                    <span className="dot" style={{ background: project.color }} />
+                    <span className="project-btn-label">{project.name}</span>
+                  </button>
+                ))}
+              </div>
+            </>}
           </div>
         </aside>
         <main>
-          {auth.frontendOnly && <div className="card sp alert-banner" role="status"><Icon name="alert-circle" size={16} /> <span>Frontend-only preview: the PIN is temporary and is not saved. Dashboard data and actions need the backend.</span></div>}
+          {auth.frontendOnly && <div className="card sp alert-banner" role="status"><Icon name="alert-circle" size={16} /> <span>Frontend-only preview: PINs and section permissions are stored in this browser and do not secure API or dashboard data.</span></div>}
           {error && <div className="toast err react-toast" role="alert"><Icon name="alert-triangle" size={16} /> {error}<button aria-label="Close" onClick={() => setError('')} type="button"><Icon name="close" size={14} /></button></div>}
           {toast && <div className="toast react-toast" role="status"><Icon name="check-circle" size={16} /> {toast}</div>}
           {notificationsOpen && <div className="card notifications"><div className="row" style={{ justifyContent: 'space-between' }}><b><Icon name="bell" size={15} /> Reminders</b><button className="btn g" onClick={() => { setReminders([]); setNotificationsOpen(false) }}>Close</button></div>{reminders.length ? reminders.map((meeting) => <button className="notification-item" key={meeting.id} onClick={() => { setMeetingDetail(meeting); setNotificationsOpen(false) }}><span className="notif-dot" /><b>{meeting.title}</b> • <span className="mu">{fmtDay(meeting.start)}</span></button>) : <p className="mu empty-hint">No new reminders.</p>}</div>}
@@ -1269,38 +1487,38 @@ export function App() {
       </div>
 
       <nav aria-label="Mobile Bottom Navigation" className="mobile-bottom-bar">
-        <button
+        {canAccessPage('dash') && <button
           className={`mobile-tab-btn nav-item nav-dash ${page === 'dash' ? 'on' : ''}`}
           onClick={() => { setPage('dash'); setMobileMenuOpen(false); }}
           type="button"
         >
           <Icon name="dashboard" size={20} />
           <span>Dashboard</span>
-        </button>
-        <button
+        </button>}
+        {canAccessPage('tasks') && <button
           className={`mobile-tab-btn nav-item nav-tasks ${page === 'tasks' ? 'on' : ''}`}
           onClick={() => { setPage('tasks'); setMobileMenuOpen(false); }}
           type="button"
         >
           <Icon name="tasks" size={20} />
           <span>Tasks</span>
-        </button>
-        <button
+        </button>}
+        {(canAccessPage('meet') || canAccessPage('zoom')) && <button
           className={`mobile-tab-btn nav-item nav-meet ${page === 'meet' || page === 'zoom' ? 'on' : ''}`}
-          onClick={() => { setPage('meet'); setMobileMenuOpen(false); }}
+          onClick={() => { setPage(canAccessPage('meet') ? 'meet' : 'zoom'); setMobileMenuOpen(false); }}
           type="button"
         >
           <Icon name="video" size={20} />
           <span>Meetings</span>
-        </button>
-        <button
+        </button>}
+        {canAccessPage('cal') && <button
           className={`mobile-tab-btn nav-item nav-cal ${page === 'cal' ? 'on' : ''}`}
           onClick={() => { setPage('cal'); setMobileMenuOpen(false); }}
           type="button"
         >
           <Icon name="calendar-clock" size={20} />
           <span>Calendar</span>
-        </button>
+        </button>}
         <button
           className={`mobile-tab-btn ${mobileMenuOpen ? 'on' : ''}`}
           onClick={() => setMobileMenuOpen((open) => !open)}
@@ -2882,15 +3100,150 @@ function HumanResourcesPage() {
   )
 }
 
+function AnalyticsTrendChart({ data, completedCount, changeLabel, changeTone }) {
+  const width = 640
+  const height = 220
+  const left = 44
+  const right = 624
+  const top = 18
+  const bottom = 168
+  const maxValue = Math.max(2, Math.ceil(Math.max(0, ...data.map((item) => item.count)) * 1.25))
+  const points = data.map((item, index) => ({
+    ...item,
+    x: left + (right - left) * index / Math.max(data.length - 1, 1),
+    y: bottom - item.count / maxValue * (bottom - top),
+  }))
+  const linePath = points.map((point, index) => `${index ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ')
+  const areaPath = `${linePath} L ${right} ${bottom} L ${left} ${bottom} Z`
+  const gridValues = [0, Math.ceil(maxValue / 2), maxValue].filter((value, index, values) => values.indexOf(value) === index)
+
+  return (
+    <section aria-labelledby="analytics-trend-title" className="analytics-chart-card analytics-trend-card">
+      <header className="analytics-chart-heading">
+        <div>
+          <span className="analytics-eyebrow"><Icon name="chart" size={13} /> WORK COMPLETED</span>
+          <h2 id="analytics-trend-title">Weekly completion trend</h2>
+          <p>Tasks completed each day over the last 7 days</p>
+        </div>
+        <span className={`analytics-trend-change ${changeTone}`}><Icon name={changeTone === 'positive' ? 'trending-up' : changeTone === 'negative' ? 'trending-down' : 'minus'} size={14} />{changeLabel}</span>
+      </header>
+      <div className="analytics-trend-total"><strong>{completedCount}</strong><span>completed this week</span></div>
+      <div className="analytics-chart-plot">
+        <svg aria-label={`Daily task completions: ${data.map((item) => `${item.label} ${item.count}`).join(', ')}`} className="analytics-line-chart" preserveAspectRatio="none" role="img" viewBox={`0 0 ${width} ${height}`}>
+          <defs>
+            <linearGradient id="analytics-trend-fill" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="#5278f6" stopOpacity=".24" />
+              <stop offset="100%" stopColor="#5278f6" stopOpacity=".01" />
+            </linearGradient>
+            <linearGradient id="analytics-trend-stroke" x1="0" x2="1" y1="0" y2="0">
+              <stop offset="0%" stopColor="#7c5cf4" />
+              <stop offset="100%" stopColor="#3187f6" />
+            </linearGradient>
+          </defs>
+          {gridValues.map((value, index) => {
+            const y = bottom - value / maxValue * (bottom - top)
+            return <g className="analytics-grid-line" key={`${value}-${index}`}><line x1={left} x2={right} y1={y} y2={y} /><text x="31" y={y + 4}>{value}</text></g>
+          })}
+          <path className="analytics-chart-area" d={areaPath} />
+          <path className="analytics-chart-line" d={linePath} pathLength={1} />
+          {points.map((point) => <g className="analytics-chart-point" key={point.label}><circle cx={point.x} cy={point.y} r="5" /><title>{`${point.longLabel}: ${point.count} completed`}</title></g>)}
+          {points.map((point) => <text className="analytics-axis-label" key={`label-${point.label}`} textAnchor="middle" x={point.x} y="199">{point.label}</text>)}
+        </svg>
+      </div>
+    </section>
+  )
+}
+
+function AnalyticsCompletionChart({ completed, open, rate, overdue, atRisk }) {
+  const radius = 43
+  const circumference = 2 * Math.PI * radius
+  const progress = Math.min(100, Math.max(0, rate))
+  return (
+    <section aria-labelledby="analytics-completion-title" className="analytics-chart-card analytics-completion-card">
+      <header className="analytics-chart-heading">
+        <div><span className="analytics-eyebrow"><Icon name="target" size={13} /> OVERALL DELIVERY</span><h2 id="analytics-completion-title">Completion rate</h2><p>Progress across all managed tasks</p></div>
+        <span className="analytics-chart-menu-icon"><Icon name="more-horizontal" size={17} /></span>
+      </header>
+      <div className="analytics-donut-wrap">
+        <svg aria-label={`${progress}% completion rate: ${completed} complete, ${open} open`} className="analytics-donut-chart" role="img" viewBox="0 0 120 120">
+          <defs><linearGradient id="analytics-donut-gradient" x1="0" x2="1" y1="0" y2="1"><stop offset="0%" stopColor="#8062f6" /><stop offset="100%" stopColor="#2998f4" /></linearGradient></defs>
+          <circle className="analytics-donut-track" cx="60" cy="60" r={radius} />
+          <circle className="analytics-donut-progress" cx="60" cy="60" r={radius} strokeDasharray={`${circumference * progress / 100} ${circumference}`} />
+        </svg>
+        <div className="analytics-donut-center"><strong>{progress}%</strong><span>complete</span></div>
+      </div>
+      <div className="analytics-donut-legend">
+        <span><i className="complete-dot" /><span>Completed</span><b>{completed}</b></span>
+        <span><i className="open-dot" /><span>Open</span><b>{open}</b></span>
+      </div>
+      <div className="analytics-health-row">
+        <div><span>Overdue</span><b className={overdue ? 'health-alert' : ''}>{overdue}</b></div>
+        <div><span>At risk</span><b className={atRisk ? 'health-warn' : ''}>{atRisk}</b></div>
+      </div>
+    </section>
+  )
+}
+
+function AnalyticsTeamChart({ rows, onSelectEmployee }) {
+  const leaders = rows.filter((row) => row.total > 0).slice(0, 5)
+  return (
+    <section aria-labelledby="analytics-team-title" className="analytics-chart-card analytics-team-card">
+      <header className="analytics-chart-heading">
+        <div><span className="analytics-eyebrow"><Icon name="users" size={13} /> TEAM SCORE</span><h2 id="analytics-team-title">Top performers</h2><p>Weighted KPI score across current tasks</p></div>
+        <span className="analytics-chart-menu-icon"><Icon name="trophy" size={16} /></span>
+      </header>
+      {leaders.length ? <div className="analytics-leader-list">{leaders.map((row, index) => {
+        const score = Math.max(0, Math.min(100, Math.round(row.score)))
+        return (
+          <button className="analytics-leader" key={row.name} onClick={() => onSelectEmployee(row.name)} type="button" title={`Filter analytics for ${row.name}`}>
+            <span className={`analytics-rank rank-${index + 1}`}>{index + 1}</span>
+            <span className="analytics-leader-main"><span className="analytics-leader-name">{row.name}</span><span className="analytics-score-track"><i style={{ width: `${score}%`, animationDelay: `${index * 90}ms` }} /></span></span>
+            <span className="analytics-leader-score">{score}<small>%</small></span>
+          </button>
+        )
+      })}</div> : <div className="analytics-chart-empty"><Icon name="users" size={21} /><span>No scored employee tasks yet</span></div>}
+      <div className="analytics-team-footnote"><Icon name="info" size={13} /> Select a teammate to filter this report</div>
+    </section>
+  )
+}
+
 function AnalyticsPage({ tasks, rows, projects, filters, setFilters, people, members, config, onUpdate, onRemove, onSelectEmployee }) {
   const complete = tasks.filter((task) => task.status === 'Done')
   const onTime = complete.filter((task) => !task.due || task.doneAt <= endOf(task.due))
   const overdue = tasks.filter(isLate)
   const atRisk = tasks.filter((task) => task.status !== 'Done' && task.due && endOf(task.due) <= Date.now() + 2 * 86_400_000)
   const recent = complete.filter((task) => task.doneAt > Date.now() - 7 * 86_400_000)
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+  const trendDates = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(todayStart)
+    date.setDate(date.getDate() - (6 - index))
+    const nextDate = new Date(date)
+    nextDate.setDate(nextDate.getDate() + 1)
+    return {
+      date,
+      count: complete.filter((task) => task.doneAt >= date.getTime() && task.doneAt < nextDate.getTime()).length,
+      label: date.toLocaleDateString(undefined, { weekday: 'short' }),
+      longLabel: date.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }),
+    }
+  })
+  const weekStart = new Date(trendDates[0].date)
+  const previousWeekStart = new Date(weekStart)
+  previousWeekStart.setDate(previousWeekStart.getDate() - 7)
+  const previousWeekCount = complete.filter((task) => task.doneAt >= previousWeekStart.getTime() && task.doneAt < weekStart.getTime()).length
+  const recentComplete = trendDates.reduce((sum, day) => sum + day.count, 0)
+  const weeklyChange = previousWeekCount ? Math.round((recentComplete - previousWeekCount) / previousWeekCount * 100) : recentComplete ? 100 : 0
+  const weeklyChangeLabel = previousWeekCount ? `${weeklyChange > 0 ? '+' : ''}${weeklyChange}% vs last week` : recentComplete ? 'New activity this week' : 'No activity this week'
+  const weeklyChangeTone = weeklyChange > 0 ? 'positive' : weeklyChange < 0 ? 'negative' : 'neutral'
+  const completionRate = tasks.length ? Math.round(complete.length / tasks.length * 100) : 0
   return <>
     <header className="top"><div><h1>KPI Analytics</h1><div className="mu">Task-based performance • {tasks.length} tasks</div></div><div className="row"><ProjectSelect projects={projects} value={filters.project} onChange={(value) => setFilters({ ...filters, project: value })} /><PersonSelect people={people} value={filters.assignee} onChange={(value) => setFilters({ ...filters, assignee: value })} /></div></header>
-    <div className="grid k4 metric-grid"><Metric label="Completion rate" value={`${tasks.length ? Math.round(complete.length / tasks.length * 100) : 0}%`} detail={`${complete.length} of ${tasks.length}`} icon="percent" variant="success" /><Metric label="On-time delivery" value={`${complete.length ? Math.round(onTime.length / complete.length * 100) : 0}%`} detail={`${onTime.length} completed on time`} icon="clock" variant="success" /><Metric label="Overdue" value={overdue.length} detail={`${tasks.length - complete.length} open`} icon="alert-triangle" variant={overdue.length > 0 ? 'danger' : 'success'} /><Metric label="Completed • 7 days" value={recent.length} detail={`${atRisk.length} at risk (due ≤ 2d)`} icon="check-circle" variant="neutral" /></div>
+    <section aria-label="Performance charts" className="analytics-visual-grid">
+      <AnalyticsTrendChart changeLabel={weeklyChangeLabel} changeTone={weeklyChangeTone} completedCount={recentComplete} data={trendDates} />
+      <AnalyticsCompletionChart atRisk={atRisk.length} completed={complete.length} open={tasks.length - complete.length} overdue={overdue.length} rate={completionRate} />
+      <AnalyticsTeamChart onSelectEmployee={onSelectEmployee} rows={rows} />
+    </section>
+    <div className="grid k4 metric-grid"><Metric label="Completion rate" value={`${completionRate}%`} detail={`${complete.length} of ${tasks.length}`} icon="percent" variant="success" /><Metric label="On-time delivery" value={`${complete.length ? Math.round(onTime.length / complete.length * 100) : 0}%`} detail={`${onTime.length} completed on time`} icon="clock" variant="success" /><Metric label="Overdue" value={overdue.length} detail={`${tasks.length - complete.length} open`} icon="alert-triangle" variant={overdue.length > 0 ? 'danger' : 'success'} /><Metric label="Completed • 7 days" value={recent.length} detail={`${atRisk.length} at risk (due ≤ 2d)`} icon="check-circle" variant="neutral" /></div>
     <div className="grid k2 sp"><section className="card"><h2>Tasks by project</h2>{projects.map((project) => { const count = tasks.filter((task) => task.project === project.id).length; return count ? <div className="project-progress" key={project.id}><span>{project.name}</span><b>{count}</b><div className="bar"><i style={{ width: `${tasks.length ? count / tasks.length * 100 : 0}%`, background: project.color }} /></div></div> : null })}</section><section className="card"><h2>Open tasks by priority</h2>{PRIORITIES.slice().reverse().map((priority) => <div className="status-line" key={priority}><span className="dot" style={{ background: PRIORITY_COLORS[priority] }} />{priority}<b>{tasks.filter((task) => task.priority === priority && task.status !== 'Done').length}</b></div>)}</section></div>
     <section className="card sp"><h2>Tasks at risk</h2><TaskTable tasks={atRisk} projects={projects} members={members} onUpdate={onUpdate} onRemove={onRemove} /></section>
     <section className="card sp"><h2>Completed in the last 7 days</h2><div aria-label="Completed tasks in the last 7 days. Scroll horizontally to view all columns" className="scroll" role="region" tabIndex={0}><table><thead><tr><th>Task</th><th>By</th><th>Completed</th><th>On-time</th></tr></thead><tbody>{recent.map((task) => <tr key={task.id}><td>{task.title}</td><td>{task.assignees?.join(', ') || '—'}</td><td>{new Date(task.doneAt).toLocaleString()}</td><td>{!task.due || task.doneAt <= endOf(task.due) ? <Icon name="check" size={14} color="var(--ok)" /> : <span className="late">Late</span>}</td></tr>)}</tbody></table></div>{config.ceoEmail && <a className="btn" href={`mailto:${encodeURIComponent(config.ceoEmail)}?subject=${encodeURIComponent('Completed tasks – ' + today())}`}><Icon name="mail" size={14} /> Email CEO this list</a>}</section>

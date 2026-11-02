@@ -111,6 +111,47 @@ export function Icon({ name, size = 18, className = '', color = 'currentColor', 
         </svg>
       )
 
+    case 'trending-up':
+      return (
+        <svg {...common}>
+          <path d="m3 17 6-6 4 4 8-8" />
+          <path d="M15 7h6v6" />
+        </svg>
+      )
+
+    case 'trending-down':
+      return (
+        <svg {...common}>
+          <path d="m3 7 6 6 4-4 8 8" />
+          <path d="M15 17h6v-6" />
+        </svg>
+      )
+
+    case 'minus':
+      return (
+        <svg {...common}>
+          <path d="M5 12h14" />
+        </svg>
+      )
+
+    case 'target':
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="9" />
+          <circle cx="12" cy="12" r="5" />
+          <circle cx="12" cy="12" r="1" />
+        </svg>
+      )
+
+    case 'more-horizontal':
+      return (
+        <svg {...common}>
+          <circle cx="5" cy="12" r="1" />
+          <circle cx="12" cy="12" r="1" />
+          <circle cx="19" cy="12" r="1" />
+        </svg>
+      )
+
     case 'sun':
     case 'day':
       return (
@@ -185,6 +226,15 @@ export function Icon({ name, size = 18, className = '', color = 'currentColor', 
           <path d="M8 4V3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v1" />
           <circle cx="12" cy="10" r="2.5" />
           <path d="M7.5 18a4.5 4.5 0 0 1 9 0" />
+        </svg>
+      )
+
+    case 'roles':
+      return (
+        <svg {...common}>
+          <path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z" />
+          <path d="M9 11a3 3 0 1 1 6 0" />
+          <path d="M8 17a4 4 0 0 1 8 0" />
         </svg>
       )
 
@@ -466,6 +516,15 @@ export function Icon({ name, size = 18, className = '', color = 'currentColor', 
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
           <polyline points="17 8 12 3 7 8" />
           <line x1="12" x2="12" y1="3" y2="15" />
+        </svg>
+      )
+
+    case 'download':
+      return (
+        <svg {...common}>
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" x2="12" y1="15" y2="3" />
         </svg>
       )
 
