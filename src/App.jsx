@@ -180,8 +180,10 @@ export function App() {
   }, [config.projects, tasks, history])
 
   const cuTasks = useMemo(() => (clickup.tasks || []).map((task) => {
-    const status = String(task.status || '').toLowerCase()
-    const type = task.status_type || ''
+    const rawStatus = typeof task.status === 'string' ? task.status : task.status?.status || ''
+    const status = rawStatus.toLowerCase()
+    const type = task.status_type || task.status?.type || ''
+    const priority = typeof task.priority === 'string' ? task.priority : task.priority?.priority
     const done = type === 'done' || type === 'closed' || (!type && /complete|closed|done/.test(status))
     return {
       id: `cu:${task.id}`, externalId: task.id, url: task.url, title: task.name,
@@ -189,9 +191,9 @@ export function App() {
       assignee: task.assignees?.[0]?.username || '',
       assignees: (task.assignees || []).map((person) => person.username),
       status: done ? 'Done' : type === 'open' || status === 'to do' || status === 'open' ? 'To Do' : /review|approv|qa/.test(status) ? 'Review' : 'In Progress',
-      rawStatus: task.status || '', statusColor: task.status_color,
+      rawStatus, statusColor: task.status_color || task.status?.color,
       due: task.due_date ? new Date(+task.due_date).toLocaleDateString('en-CA') : '',
-      priority: task.priority ? task.priority[0].toUpperCase() + task.priority.slice(1) : 'Normal',
+      priority: typeof priority === 'string' && priority ? priority[0].toUpperCase() + priority.slice(1) : 'Normal',
       tags: (task.tags || []).map((tag) => tag.name),
       doneAt: task.date_closed ? +task.date_closed : 0,
       space: task.space?.name || '', folder: task.folder?.name || '', list: task.list?.name || '',
