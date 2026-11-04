@@ -85,9 +85,9 @@ export function FilterChips({ filters, setFilters, projects }) {
   )
 }
 
-export function TaskTable({ tasks, projects, members, onUpdate, onRemove }) {
+export function TaskTable({ tasks, projects, members, onUpdate, onRemove, variant = '' }) {
   if (!tasks.length) return <p className="mu">No tasks match these filters.</p>
-  return <div aria-label="Task list. Scroll horizontally to view all columns" className="scroll" role="region" tabIndex={0}><table><thead><tr><th>Task</th><th>Status</th><th>Assignee</th><th>Due</th><th>Priority</th><th>Project</th><th /></tr></thead><tbody>{tasks.map((task) => <tr key={task.id}>
+  return <div aria-label="Task list. Scroll horizontally to view all columns" className={`scroll${variant ? ` task-list-${variant}` : ''}`} role="region" tabIndex={0}><table><thead><tr><th>Task</th><th>Status</th><th>Assignee</th><th>Due</th><th>Priority</th><th>Project</th><th /></tr></thead><tbody>{tasks.map((task) => <tr key={task.id}>
     <td>{task.url ? <a className="task-link" href={task.url} rel="noreferrer" target="_blank">{task.title} <Icon name="external-link" size={12} /></a> : <b className="task-title-text">{task.title}</b>}{task.hist && <span className="pill">Sheet</span>}</td>
     <td>{task.source === 'clickup' ? task.rawStatus : <select aria-label={`Status for ${task.title}`} disabled={task.demo || task.hist} onChange={(event) => onUpdate(task, { status: event.target.value, doneAt: event.target.value === 'Done' ? Date.now() : 0 })} value={task.status}>{STATUSES.map((status) => <option key={status}>{status}</option>)}</select>}</td>
     <td>{task.assignees?.map((name) => <span key={name}><Avatar members={members} name={name} />{name}</span>) || task.assignee || '—'}</td>
@@ -107,11 +107,11 @@ export function KpiTable({ rows, members = [], onSelect }) {
 export function ClickupPage({ tasks, config, status, lastSync, filters, setFilters, members, onSync }) {
   const groups = [...new Set(tasks.map((task) => `${task.space}\u0000${task.folder}\u0000${task.list}`))]
   return <>
-    <header className="top"><div><h1>ClickUp</h1><div className="mu">Your workspace tasks • {status}{lastSync ? ` • synced ${new Date(lastSync).toLocaleTimeString()}` : ''}</div></div><div className="row"><select onChange={(event) => setFilters({ ...filters, space: event.target.value })} value={filters.space}><option value="">All spaces</option>{[...new Set((config.spaces || []).map((space) => space.name))].map((space) => <option key={space}>{space}</option>)}</select><PersonSelect people={members.map((person) => person.name)} value={filters.assignee} onChange={(value) => setFilters({ ...filters, assignee: value })} /><input onChange={(event) => setFilters({ ...filters, search: event.target.value })} placeholder="Search tasks" value={filters.search} /><label className="chk"><input checked={filters.closed} onChange={(event) => setFilters({ ...filters, closed: event.target.checked })} type="checkbox" /> Show closed</label><Button onClick={onSync}><Icon name="sync" size={14} /> Sync</Button></div></header>
+    <header className="top clickup-header"><div><h1>ClickUp</h1><div className="mu">Your workspace tasks • {status}{lastSync ? ` • synced ${new Date(lastSync).toLocaleTimeString()}` : ''}</div></div><div className="row clickup-toolbar"><select onChange={(event) => setFilters({ ...filters, space: event.target.value })} value={filters.space}><option value="">All spaces</option>{[...new Set((config.spaces || []).map((space) => space.name))].map((space) => <option key={space}>{space}</option>)}</select><PersonSelect people={members.map((person) => person.name)} value={filters.assignee} onChange={(value) => setFilters({ ...filters, assignee: value })} /><input onChange={(event) => setFilters({ ...filters, search: event.target.value })} placeholder="Search tasks" value={filters.search} /><label className="chk"><input checked={filters.closed} onChange={(event) => setFilters({ ...filters, closed: event.target.checked })} type="checkbox" /> Show closed</label><Button onClick={onSync}><Icon name="sync" size={14} /> Sync</Button></div></header>
     {!config.configured ? <div className="card"><h2>ClickUp is not connected yet</h2><p>Add `CLICKUP_API_TOKEN` to the server environment to enable workspace sync. TaskFlow-managed tasks are still available in Tasks.</p></div> : groups.map((group) => {
       const [space, folder, list] = group.split('\u0000')
       const groupTasks = tasks.filter((task) => `${task.space}\u0000${task.folder}\u0000${task.list}` === group)
-      return <section className="card sp" key={group}><h2>{[space, folder, list].filter(Boolean).join(' › ')} <span className="mu">{groupTasks.length} tasks</span></h2><TaskTable tasks={groupTasks} projects={[]} members={members} /></section>
+      return <section className="card sp clickup-group" key={group}><h2>{[space, folder, list].filter(Boolean).join(' › ')} <span className="mu">{groupTasks.length} tasks</span></h2><TaskTable tasks={groupTasks} projects={[]} members={members} variant="clickup" /></section>
     })}
     {config.truncated && <p className="mu">Showing the first 1,000 tasks returned by ClickUp.</p>}
   </>
