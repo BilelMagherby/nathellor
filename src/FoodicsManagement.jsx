@@ -7,10 +7,26 @@ export const FOODICS_SECTIONS = [
   { id: 'purchases', label: 'Purchase bills', shortLabel: 'Purchase bills', icon: 'wallet', description: 'File supplier invoices, supporting documents, and payment status.' },
   { id: 'sales', label: 'Sales bills', shortLabel: 'Sales bills', icon: 'file-check', description: 'Keep sales invoices and bill references together with their source files.' },
   { id: 'vat', label: 'VAT reminders', shortLabel: 'VAT reminders', icon: 'bell', description: 'Maintain filing and review dates without guessing your tax deadlines.' },
-  { id: 'procedures', label: 'Operating procedures', shortLabel: 'Procedures', icon: 'check-square', description: 'Practical opening, shift-close, and exception-handling checklists.' },
-  { id: 'accounts', label: 'Chart of accounts', shortLabel: 'Chart of accounts', icon: 'table', description: 'A structured reference for mapping Foodics activity to your ledger.' },
-  { id: 'documents', label: 'Secure documents', shortLabel: 'Secure documents', icon: 'lock', description: 'An organized register for important company and compliance files.' },
+  { id: 'procedures', label: 'Procedures', shortLabel: 'Procedures', icon: 'check-square', description: 'Practical opening, shift-close, and exception-handling checklists.' },
+  { id: 'accounts', label: 'Chart of Accounts', shortLabel: 'Chart of Accounts', icon: 'table', description: 'A structured reference for mapping Foodics activity to your ledger.' },
+  { id: 'documents', label: 'Secure Documents', shortLabel: 'Secure Documents', icon: 'lock', description: 'An organized register for important company and compliance files.' },
 ]
+
+export const FOODICS_PROJECTS = [
+  { id: 'natheel', name: 'Natheel', color: '#d5a33b' },
+  { id: 'ghalia', name: 'Ghalia', color: '#d77f9f' },
+  { id: 'hajiss', name: 'Hajiss', color: '#d88a55' },
+  { id: 'danisquare', name: 'DaniSquare', color: '#62a8b8' },
+]
+
+const PROJECT_SECTIONS = FOODICS_SECTIONS.filter((section) => section.id !== 'reports')
+const OVERVIEW_SECTION = {
+  id: 'overview',
+  label: 'Foodics Management',
+  shortLabel: 'Overview',
+  icon: 'folder',
+  description: 'Choose a project workspace to manage its finance and operations records.',
+}
 
 const REPORT_TYPES = ['Daily sales', 'Sales by product', 'Payment reconciliation', 'Inventory movement', 'Discounts & voids', 'VAT summary', 'Operations', 'Other']
 const DOCUMENT_TYPES = ['Commercial registration', 'Tax registration', 'Foodics agreement', 'Banking', 'Insurance', 'Policy', 'Other']
@@ -244,12 +260,12 @@ function FoodicsEntryDialog({ section, onClose, onSave }) {
   )
 }
 
-export function FoodicsManagementNav({ activeSection, mobile = false, onSelect, open, onToggle, page }) {
+export function FoodicsManagementNav({ activeSection, activeProject, expandedProject, mobile = false, onSelect, onProjectSelect, onSectionSelect, open, onToggle, page }) {
   const active = page === 'foodics'
   return (
     <div className={`foodics-nav${mobile ? ' foodics-nav-mobile' : ''}${active ? ' is-active' : ''}`}>
       <div className="foodics-nav-heading">
-        <button aria-current={active ? 'page' : undefined} className="foodics-nav-main" onClick={() => onSelect('reports')} type="button">
+        <button aria-current={active && activeSection === 'overview' ? 'page' : undefined} className="foodics-nav-main" onClick={() => onSelect('overview')} type="button">
           <span className="foodics-nav-icon"><Icon name="folder" size={17} /></span>
           <span className="foodics-nav-label">Foodics Management</span>
         </button>
@@ -258,17 +274,31 @@ export function FoodicsManagementNav({ activeSection, mobile = false, onSelect, 
         </button>
       </div>
       {open && <div className="foodics-nav-sections">
-        {FOODICS_SECTIONS.map((section) => (
-          <button aria-current={active && activeSection === section.id ? 'page' : undefined} className={`foodics-nav-item${active && activeSection === section.id ? ' selected' : ''}`} key={section.id} onClick={() => onSelect(section.id)} type="button">
-            <Icon name={section.icon} size={14} /><span>{section.shortLabel}</span>
-          </button>
+        <button aria-current={active && activeSection === 'reports' ? 'page' : undefined} className={`foodics-nav-item foodics-nav-reports${active && activeSection === 'reports' ? ' selected' : ''}`} onClick={() => onSelect('reports')} type="button">
+          <Icon name="chart" size={14} /><span>Reports library</span>
+        </button>
+        {FOODICS_PROJECTS.map((project) => (
+          <div className="foodics-nav-project-group" key={project.id}>
+            <button aria-expanded={expandedProject === project.id} aria-current={active && activeProject === project.id && activeSection !== 'overview' ? 'location' : undefined} className={`foodics-nav-project${active && activeProject === project.id ? ' selected' : ''}`} onClick={() => onProjectSelect(project.id)} type="button">
+              <span className="foodics-project-mark" style={{ '--project-color': project.color }}>{project.name.slice(0, 1)}</span>
+              <span className="foodics-nav-project-name">{project.name}</span>
+              <Icon className="foodics-nav-project-chevron" name={expandedProject === project.id ? 'chevron-down' : 'chevron-right'} size={13} />
+            </button>
+            {expandedProject === project.id && <div className="foodics-nav-project-sections">
+              {PROJECT_SECTIONS.map((section) => (
+                <button aria-current={active && activeProject === project.id && activeSection === section.id ? 'page' : undefined} className={`foodics-nav-item${active && activeProject === project.id && activeSection === section.id ? ' selected' : ''}`} key={section.id} onClick={() => onSectionSelect(project.id, section.id)} type="button">
+                  <Icon name={section.icon} size={14} /><span>{section.shortLabel}</span>
+                </button>
+              ))}
+            </div>}
+          </div>
         ))}
       </div>}
     </div>
   )
 }
 
-export function FoodicsManagement({ activeSection }) {
+export function FoodicsManagement({ activeSection, activeProject, onSelectProject, onSelectSection }) {
   const [records, setRecords] = useState([])
   const [workflow, setWorkflow] = useState({})
   const [loading, setLoading] = useState(true)
@@ -276,10 +306,13 @@ export function FoodicsManagement({ activeSection }) {
   const [search, setSearch] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [notice, setNotice] = useState('')
-  const section = FOODICS_SECTIONS.find((item) => item.id === activeSection) || FOODICS_SECTIONS[0]
+  const section = activeSection === 'overview'
+    ? OVERVIEW_SECTION
+    : FOODICS_SECTIONS.find((item) => item.id === activeSection) || OVERVIEW_SECTION
+  const project = FOODICS_PROJECTS.find((item) => item.id === activeProject)
   const searchInput = useRef(null)
 
-  useEffect(() => setSearch(''), [section.id])
+  useEffect(() => setSearch(''), [activeProject, section.id])
 
   useEffect(() => {
     let mounted = true
@@ -289,10 +322,16 @@ export function FoodicsManagement({ activeSection }) {
         const result = await Promise.all([
           requestResult(database.transaction('records', 'readonly').objectStore('records').getAll()),
           requestResult(database.transaction('settings', 'readonly').objectStore('settings').get('workflow')),
+          ...FOODICS_PROJECTS.map((item) => requestResult(database.transaction('settings', 'readonly').objectStore('settings').get(`workflow:${item.id}`))),
         ])
         if (mounted) {
-          setRecords(result[0].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))))
-          setWorkflow(result[1]?.value || {})
+          setRecords(result[0].map((record) => record.section !== 'reports' && !record.projectId
+            ? { ...record, projectId: FOODICS_PROJECTS[0].id }
+            : record).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))))
+          setWorkflow(Object.fromEntries(FOODICS_PROJECTS.map((item, index) => [
+            item.id,
+            result[index + 2]?.value || (item.id === FOODICS_PROJECTS[0].id ? result[1]?.value : null) || {},
+          ])))
         }
       } catch (cause) {
         if (mounted) setStorageError(cause.message)
@@ -304,18 +343,21 @@ export function FoodicsManagement({ activeSection }) {
     return () => { mounted = false }
   }, [])
 
-  const sectionRecords = useMemo(() => records.filter((record) => record.section === section.id), [records, section.id])
+  const sectionRecords = useMemo(() => records.filter((record) => record.section === section.id
+    && (section.id === 'reports' || record.projectId === activeProject)),
+  [activeProject, records, section.id])
   const filteredRecords = useMemo(() => sectionRecords.filter((record) =>
     !search || [record.title, record.category, record.reference, record.counterparty, record.notes, record.fileName, record.classification]
       .filter(Boolean).join(' ').toLowerCase().includes(search.toLowerCase())
   ), [sectionRecords, search])
 
   async function saveRecord(record, file) {
+    const scopedRecord = section.id === 'reports' ? record : { ...record, projectId: activeProject }
     await runTransaction(file ? ['records', 'files'] : ['records'], 'readwrite', (stores) => {
-      stores.records.put(record)
-      if (file) stores.files.put({ id: record.fileId, blob: file })
+      stores.records.put(scopedRecord)
+      if (file) stores.files.put({ id: scopedRecord.fileId, blob: file })
     })
-    setRecords((current) => [record, ...current])
+    setRecords((current) => [scopedRecord, ...current])
     setNotice('Record saved to this browser’s Foodics library.')
     window.setTimeout(() => setNotice(''), 4000)
   }
@@ -356,8 +398,8 @@ export function FoodicsManagement({ activeSection }) {
   async function toggleChecklist(stepId) {
     const next = { ...workflow, [stepId]: !workflow[stepId] }
     try {
-      await runTransaction(['settings'], 'readwrite', (stores) => stores.settings.put({ id: 'workflow', value: next }))
-      setWorkflow(next)
+      await runTransaction(['settings'], 'readwrite', (stores) => stores.settings.put({ id: `workflow:${activeProject}`, value: next }))
+      setWorkflow((current) => ({ ...current, [activeProject]: next }))
     } catch (cause) {
       setStorageError(cause.message)
     }
@@ -373,7 +415,8 @@ export function FoodicsManagement({ activeSection }) {
     }
   }
 
-  const completedSteps = PROCEDURES.flatMap((procedure) => procedure.steps.map((_, index) => `${procedure.id}-${index}`)).filter((id) => workflow[id]).length
+  const currentWorkflow = workflow[activeProject] || {}
+  const completedSteps = PROCEDURES.flatMap((procedure) => procedure.steps.map((_, index) => `${procedure.id}-${index}`)).filter((id) => currentWorkflow[id]).length
   const totalSteps = PROCEDURES.reduce((sum, procedure) => sum + procedure.steps.length, 0)
 
   function renderFileCell(record) {
@@ -419,18 +462,44 @@ export function FoodicsManagement({ activeSection }) {
     <section aria-labelledby="foodics-page-title" className="foodics-page">
       <header className="foodics-page-header">
         <div className="foodics-page-heading">
-          <span className="foodics-kicker"><Icon name="folder" size={14} /> OPERATIONS LIBRARY</span>
-          <h1 id="foodics-page-title">{section.label}</h1>
-          <p>{section.description}</p>
+          <span className="foodics-kicker"><Icon name="folder" size={14} /> {project ? `${project.name.toUpperCase()} WORKSPACE` : 'FOODICS MANAGEMENT'}</span>
+          <h1 id="foodics-page-title">{section.id === 'overview' && project ? `${project.name} workspace` : section.label}</h1>
+          <p>{section.id === 'overview' && project ? `Manage ${project.name} bills, VAT reminders, procedures, accounts, and documents in one place.` : section.description}</p>
         </div>
-        {section.id !== 'accounts' && section.id !== 'procedures' && <button className="foodics-button primary" onClick={() => setDialogOpen(true)} type="button"><Icon name="plus" size={16} /> {section.id === 'vat' ? 'Add reminder' : 'Add record'}</button>}
+        {section.id === 'overview' && project && <button className="foodics-button secondary" onClick={() => onSelectProject('')} type="button"><Icon name="chevron-left" size={15} /> All projects</button>}
+        {section.id !== 'overview' && section.id !== 'accounts' && section.id !== 'procedures' && <button className="foodics-button primary" onClick={() => setDialogOpen(true)} type="button"><Icon name="plus" size={16} /> {section.id === 'vat' ? 'Add reminder' : 'Add record'}</button>}
       </header>
 
       <div className="foodics-storage-note" role="note"><Icon name="info" size={16} /><span><strong>Browser-local archive.</strong> Records and files remain in this browser profile; they are not encrypted, backed up, or shared across devices. Do not store sensitive files here unless this device and deployment are approved for them.</span></div>
       {storageError && <div className="foodics-error" role="alert"><Icon name="alert-triangle" size={16} /><span>{storageError}</span><button aria-label="Dismiss error" onClick={() => setStorageError('')} type="button"><Icon name="close" size={14} /></button></div>}
       {notice && <div className="foodics-success" role="status"><Icon name="check-circle" size={15} />{notice}</div>}
 
-      {section.id === 'accounts' ? <>
+      {section.id === 'overview' ? <div className="foodics-workspace-grid">
+        {project
+          ? PROJECT_SECTIONS.map((item) => {
+            const count = records.filter((record) => record.projectId === project.id && record.section === item.id).length
+            const countLabel = item.id === 'procedures'
+              ? `${PROCEDURES.length} checklists`
+              : item.id === 'accounts'
+                ? `${ACCOUNTS.length} accounts`
+                : `${count} ${count === 1 ? 'record' : 'records'}`
+            return <button className="foodics-workspace-card" key={item.id} onClick={() => onSelectSection(project.id, item.id)} type="button">
+              <span className="foodics-workspace-icon"><Icon name={item.icon} size={19} /></span>
+              <span className="foodics-workspace-card-title">{item.label}</span>
+              <span className="foodics-workspace-card-description">{item.description}</span>
+              <span className="foodics-workspace-card-footer">{countLabel} <Icon name="chevron-right" size={14} /></span>
+            </button>
+          })
+          : FOODICS_PROJECTS.map((item) => {
+            const count = records.filter((record) => record.projectId === item.id).length
+            return <button className="foodics-project-card" key={item.id} onClick={() => onSelectProject(item.id)} style={{ '--project-color': item.color }} type="button">
+              <span className="foodics-project-card-icon">{item.name.slice(0, 1)}</span>
+              <span className="foodics-project-card-content"><strong>{item.name}</strong><small>Foodics project workspace</small></span>
+              <span className="foodics-project-card-count">{count} {count === 1 ? 'record' : 'records'}</span>
+              <Icon className="foodics-project-card-arrow" name="chevron-right" size={16} />
+            </button>
+          })}
+      </div> : section.id === 'accounts' ? <>
         <div className="foodics-account-notice"><Icon name="alert-circle" size={17} /><div><strong>Reference structure only</strong><p>These example account groupings are not your approved ledger or a tax treatment decision. Confirm account codes, mappings, and VAT treatment with your accountant before use.</p></div></div>
         <div className="foodics-summary-grid">
           <div className="foodics-summary-card"><span>Reference accounts</span><strong>{ACCOUNTS.length}</strong><small>Illustrative starting point</small></div>
@@ -445,10 +514,10 @@ export function FoodicsManagement({ activeSection }) {
       </> : section.id === 'procedures' ? <>
         <div className="foodics-procedure-summary"><div><span className="foodics-kicker">SHIFT CONTROL</span><h2>Repeatable checks. Clear evidence.</h2><p>Mark steps as you complete them. Progress is saved in this browser profile.</p></div><div className="foodics-progress"><strong>{completedSteps}<span> / {totalSteps}</span></strong><small>checks completed</small><div className="foodics-progress-track"><i style={{ width: `${totalSteps ? completedSteps / totalSteps * 100 : 0}%` }} /></div></div></div>
         <div className="foodics-procedure-grid">{PROCEDURES.map((procedure, procedureIndex) => {
-          const done = procedure.steps.filter((_, index) => workflow[`${procedure.id}-${index}`]).length
+          const done = procedure.steps.filter((_, index) => currentWorkflow[`${procedure.id}-${index}`]).length
           return <article className="foodics-procedure-card" key={procedure.id}><header><span className="foodics-procedure-number">{String(procedureIndex + 1).padStart(2, '0')}</span><span className="foodics-cadence">{procedure.cadence}</span></header><h3>{procedure.title}</h3><p>{procedure.description}</p><div className="foodics-procedure-count">{done} of {procedure.steps.length} complete</div><ol>{procedure.steps.map((step, index) => {
             const id = `${procedure.id}-${index}`
-            return <li key={id}><label className={workflow[id] ? 'is-checked' : ''}><input checked={Boolean(workflow[id])} onChange={() => toggleChecklist(id)} type="checkbox" /><span>{step}</span></label></li>
+            return <li key={id}><label className={currentWorkflow[id] ? 'is-checked' : ''}><input checked={Boolean(currentWorkflow[id])} onChange={() => toggleChecklist(id)} type="checkbox" /><span>{step}</span></label></li>
           })}</ol></article>
         })}</div>
         <div className="foodics-procedure-footnote"><Icon name="info" size={15} /> Verify exact Foodics controls and approval limits against your current outlet configuration and company policy.</div>
@@ -468,7 +537,7 @@ export function FoodicsManagement({ activeSection }) {
         </div>
       </>}
 
-      {dialogOpen && <FoodicsEntryDialog key={section.id} onClose={() => setDialogOpen(false)} onSave={saveRecord} section={section} />}
+      {dialogOpen && <FoodicsEntryDialog key={`${activeProject || 'all'}-${section.id}`} onClose={() => setDialogOpen(false)} onSave={saveRecord} section={section} />}
     </section>
   )
 }

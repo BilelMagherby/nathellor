@@ -23,6 +23,12 @@ Taskflow management and CEO dashboard application for Natheelco Al Khaleej.
 
 The Roles sidebar page lets the dashboard admin create users with unique 4-digit PINs and assign access to dashboard sections. In frontend-only mode, users and permissions are stored in the current browser and can sign in with their PIN. This is a UI convenience only—not server-side authentication or data protection. The connected backend currently authenticates with the shared dashboard PIN; individual user authentication and server-enforced permissions require backend support.
 
+## ClickUp synchronization
+
+The Vercel serverless endpoint at `/api/clickup` reads `CLICKUP_API_TOKEN` from the server environment and fetches workspace tasks, members, and spaces from ClickUp. Add the token as a Vercel environment variable for the production deployment; never add it to frontend `VITE_` variables or source files. The endpoint is read-only, refreshes automatically every 30 seconds in the dashboard, and keeps a short server-side cache.
+
+The endpoint returns workspace task data, so protect the production deployment with Vercel Deployment Protection/SSO. The dashboard's browser-only PIN is not server-side authentication. For local Vite development, the configured API proxy expects a separate backend at `localhost:8889`.
+
 ## Foodics Management
 
 The Foodics Management sidebar contains separate libraries for reports, purchase bills, sales bills, VAT reminders, operating procedures, the chart-of-accounts reference, and important documents. Records and uploaded files are stored in IndexedDB in the current browser profile so they persist across reloads on that device. They are not encrypted, backed up, or synchronized; document classifications are organizational labels, not access controls. Use an approved secure company repository for sensitive records.
