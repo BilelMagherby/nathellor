@@ -4,10 +4,10 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0 --mode frontend-only",
+    "dev": "vite --host 0.0.0.0 --mode api",
     "dev:frontend-only": "vite --host 0.0.0.0 --mode frontend-only",
-    "dev:api": "vite --host 0.0.0.0",
-    "build": "vite build",
+    "dev:api": "vite --host 0.0.0.0 --mode api",
+    "build": "vite build --mode api",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc --noEmit"
   },

@@ -7985,3 +7985,53 @@ tr:hover td {
     flex-basis: 26px;
   }
 }
+
+.activity-page .top h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.activity-table-wrap {
+  overflow: auto;
+  padding: 0;
+}
+
+.activity-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.activity-table th,
+.activity-table td {
+  border-bottom: 1px solid var(--bd);
+  padding: 12px 16px;
+  white-space: nowrap;
+}
+
+.activity-table th {
+  color: var(--mu);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.activity-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.activity-empty {
+  color: var(--mu);
+  padding: 24px;
+}
+
+.activity-error {
+  color: var(--bad);
+}
+
+.activity-note {
+  color: var(--mu);
+  display: flex;
+  gap: 7px;
+  margin-top: 12px;
+}
