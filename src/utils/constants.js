@@ -55,6 +55,7 @@ export const DEFAULT_CONFIG = {
 
 export const PAGES = [
   ['dash', 'dashboard', 'CEO Dashboard'],
+  ['mails', 'mail', 'Mails'],
   ['meet', 'google-meet', 'Google Meet'],
   ['zoom', 'zoom', 'Zoom'],
   ['cal', 'calendar-clock', 'Calendar & Reminders'],

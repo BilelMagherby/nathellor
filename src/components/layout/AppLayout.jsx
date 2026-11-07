@@ -9,7 +9,6 @@ export function AppLayout({
   config,
   pageTitle,
   reminders,
-  setReminders,
   notificationsOpen,
   setNotificationsOpen,
   mobileMenuOpen,
@@ -43,7 +42,7 @@ export function AppLayout({
   error,
   setError,
   toast,
-  setMeetingDetail,
+  setCalendarEventDetail,
   children,
 }) {
   return (
@@ -141,34 +140,41 @@ export function AppLayout({
             <div className="card notifications">
               <div className="row" style={{ justifyContent: 'space-between' }}>
                 <b>
-                  <Icon name="bell" size={15} /> Reminders
+                  <Icon name="bell" size={15} /> Today's calendar
                 </b>
-                <button
-                  className="btn g"
-                  onClick={() => {
-                    setReminders([])
-                    setNotificationsOpen(false)
-                  }}
-                >
+                <button className="btn g" onClick={() => setNotificationsOpen(false)}>
                   Close
                 </button>
               </div>
+              <p className="mu" style={{ margin: '4px 0 8px', fontSize: 12 }}>
+                {fmtDay(Date.now(), { weekday: 'long', month: 'long', day: 'numeric' })}
+              </p>
               {reminders.length ? (
-                reminders.map((meeting) => (
+                reminders.map(({ kind, item }) => (
                   <button
                     className="notification-item"
-                    key={meeting.id}
+                    key={`${kind}-${item.id}`}
                     onClick={() => {
-                      setMeetingDetail(meeting)
+                      setCalendarEventDetail({ kind, item })
                       setNotificationsOpen(false)
                     }}
                   >
                     <span className="notif-dot" />
-                    <b>{meeting.title}</b> • <span className="mu">{fmtDay(meeting.start)}</span>
+                    <span className="notification-copy">
+                      <b>{item.title}</b>
+                      <span className="mu">
+                        {kind === 'meeting'
+                          ? `${fmtDay(item.start)} · ${new Date(item.start).toLocaleTimeString(undefined, {
+                              hour: 'numeric',
+                              minute: '2-digit',
+                            })}`
+                          : 'Task due today'}
+                      </span>
+                    </span>
                   </button>
                 ))
               ) : (
-                <p className="mu empty-hint">No new reminders.</p>
+                <p className="mu empty-hint">No calendar events scheduled for today.</p>
               )}
             </div>
           )}
@@ -188,4 +194,3 @@ export function AppLayout({
 }
 
 export default AppLayout
-

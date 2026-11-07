@@ -163,9 +163,20 @@ export function DesktopSidebar({
           </>
         )}
       </div>
+      {canAccessPage('dash') && (
+        <button
+          className="nav-item nav-cash-bank cash-bank-button"
+          onClick={() => window.location.assign('/cash-bank/')}
+          type="button"
+        >
+          <span className="nav-icon">
+            <Icon name="wallet" size={16} />
+          </span>
+          <span className="nav-label">Cash Bank Dashboard</span>
+        </button>
+      )}
     </aside>
   )
 }
 
 export default DesktopSidebar
-

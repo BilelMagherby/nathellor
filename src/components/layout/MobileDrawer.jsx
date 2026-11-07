@@ -159,10 +159,21 @@ export function MobileDrawer({
             </div>
           </div>
         )}
+        {canAccessPage('dash') && (
+          <button
+            className="mobile-drawer-item nav-item nav-cash-bank cash-bank-button"
+            onClick={() => window.location.assign('/cash-bank/')}
+            type="button"
+          >
+            <span className="drawer-icon">
+              <Icon name="wallet" size={20} />
+            </span>
+            <span className="drawer-label">Cash Bank Dashboard</span>
+          </button>
+        )}
       </div>
     </div>
   )
 }
 
 export default MobileDrawer
-

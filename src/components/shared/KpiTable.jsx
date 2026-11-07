@@ -1,7 +1,8 @@
 import { Icon } from '../ui/Icon.jsx'
 import { Avatar } from '../ui/Avatar.jsx'
+import { normalize } from '../../utils/helpers.js'
 
-export function KpiTable({ rows = [], members = [], onSelect }) {
+export function KpiTable({ rows = [], members = [], onSelect, selectedName = '', reviewScores }) {
   return (
     <div aria-label="Employee KPI scorecard. Scroll horizontally to view all columns" className="scroll" role="region" tabIndex={0}>
       <table>
@@ -14,12 +15,14 @@ export function KpiTable({ rows = [], members = [], onSelect }) {
             <th>Overdue</th>
             <th>On-time</th>
             <th>Score</th>
+            {reviewScores && <th>CEO review</th>}
           </tr>
         </thead>
         <tbody>
           {rows.map((row, index) => (
             <tr
-              className={onSelect ? 'ck' : ''}
+              aria-current={selectedName && normalize(selectedName) === normalize(row.name) ? 'true' : undefined}
+              className={`${onSelect ? 'ck' : ''}${selectedName && normalize(selectedName) === normalize(row.name) ? ' selected' : ''}`}
               key={row.name}
               onClick={onSelect ? () => onSelect(row.name) : undefined}
               onKeyDown={
@@ -49,7 +52,7 @@ export function KpiTable({ rows = [], members = [], onSelect }) {
               <td>{row.done}</td>
               <td>{row.open}</td>
               <td className={row.overdue ? 'late' : ''}>{row.overdue}</td>
-              <td>{row.done ? Math.round((row.onTime / row.done) * 100) : 100}%</td>
+              <td>{row.done ? `${Math.round((row.onTime / row.done) * 100)}%` : '—'}</td>
               <td>
                 <div className="row">
                   <div className="bar">
@@ -58,6 +61,25 @@ export function KpiTable({ rows = [], members = [], onSelect }) {
                   <b>{Math.round(row.score)}</b>
                 </div>
               </td>
+              {reviewScores && (
+                <td>
+                  {reviewScores[normalize(row.name)]
+                    ? (
+                        <>
+                          <b title={Object.entries(reviewScores[normalize(row.name)].categories)
+                            .map(([category, score]) => `${category}: ${score.toFixed(1)}/10`)
+                            .join(' · ')}>
+                            {reviewScores[normalize(row.name)].score.toFixed(1)} / 10
+                          </b>
+                          <small className="mu">
+                            {reviewScores[normalize(row.name)].count} CEO rating
+                            {reviewScores[normalize(row.name)].count === 1 ? '' : 's'} averaged
+                          </small>
+                        </>
+                      )
+                    : '— / 10'}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
@@ -65,4 +87,3 @@ export function KpiTable({ rows = [], members = [], onSelect }) {
     </div>
   )
 }
-

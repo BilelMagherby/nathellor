@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Icon } from '../../components/ui/Icon.jsx'
 import { Button } from '../../components/ui/Button.jsx'
 import { Metric } from '../../components/ui/Metric.jsx'
@@ -9,6 +10,8 @@ import { KpiTable } from '../../components/shared/KpiTable.jsx'
 import { MeetingSummary } from '../Meetings/MeetingSummary.jsx'
 import { STATUSES, STATUS_COLORS } from '../../utils/constants.js'
 import { isLate, endOf } from '../../utils/helpers.js'
+import { request } from '../../services/api.js'
+import '../../mails.css'
 
 export function DashboardPage({
   scopedTasks,
@@ -20,6 +23,7 @@ export function DashboardPage({
   setNotificationsOpen,
   selectedProject,
   projectScope,
+  dashboardSummary,
   kpiRows,
   allMeetings,
   clickup,
@@ -29,10 +33,37 @@ export function DashboardPage({
   setMeetingDetail,
   setMeetingDialog,
   startMeeting,
+  canViewMails,
 }) {
+  const [mailSummary, setMailSummary] = useState(null)
+
+  useEffect(() => {
+    if (!canViewMails) {
+      setMailSummary(null)
+      return undefined
+    }
+    let active = true
+    request('/api/mails/summary')
+      .then((summary) => {
+        if (active) setMailSummary(summary)
+      })
+      .catch(() => {
+        if (active) setMailSummary({ connected: false, messages: [], unreadCount: 0 })
+      })
+    return () => {
+      active = false
+    }
+  }, [canViewMails])
+
   const completed = scopedTasks.filter((task) => task.status === 'Done')
-  const overdue = scopedTasks.filter(isLate)
-  const onTime = completed.filter((task) => !task.due || task.doneAt <= endOf(task.due))
+  const overdue = dashboardSummary
+    ? dashboardSummary.overdueTasks
+    : scopedTasks.filter(isLate)
+  const completedCount = dashboardSummary?.totals.completed ?? completed.length
+  const onTimeCount =
+    dashboardSummary?.totals.onTime ?? completed.filter((task) => !task.due || task.doneAt <= endOf(task.due)).length
+  const taskCount = dashboardSummary?.totals.tasks ?? scopedTasks.length
+  const overdueCount = dashboardSummary?.totals.overdue ?? overdue.length
 
   const isWithinSelectedProject = (projectId) => {
     let project = projects.find((item) => item.id === projectId)
@@ -43,14 +74,22 @@ export function DashboardPage({
     return false
   }
 
-  const projectsSummary = projects
+  const projectsSummary = dashboardSummary?.projectProgress || projects
     .filter((item) => item.parent && (!filters.project || isWithinSelectedProject(item.id)))
     .map((item) => {
       const work = projectScope(item.id)
       return { ...item, tasks: work.length, done: work.filter((task) => task.status === 'Done').length }
     })
+    .filter((project) => project.tasks > 0)
 
-  const visibleKpiRows = filters.project ? kpiRows.filter((row) => row.total > 0) : kpiRows
+  const dashboardProjects = projects.filter((project) => projectScope(project.id).length > 0)
+  const liveWorkerNames = new Set([
+    ...(clickup.members || []).map((member) => member.name),
+    ...scopedTasks.flatMap((task) => task.assignees || [task.assignee]).filter(Boolean),
+  ])
+  const visibleKpiRows =
+    dashboardSummary?.employeeKpis ||
+    kpiRows.filter((row) => liveWorkerNames.has(row.name) && (!filters.project || row.total > 0))
   const dashboardMeetings = filters.project
     ? allMeetings.filter((meeting) => projectScope(filters.project, [meeting]).length > 0)
     : allMeetings
@@ -68,7 +107,7 @@ export function DashboardPage({
         <div className="row">
           <ProjectSelect
             value={filters.project}
-            projects={projects}
+            projects={dashboardProjects}
             onChange={(value) => setFilters((current) => ({ ...current, project: value }))}
           />
           <NotificationButton
@@ -77,8 +116,37 @@ export function DashboardPage({
           />
         </div>
       </header>
-      <FilterChips filters={filters} setFilters={setFilters} projects={projects} />
-      {overdue.length > 0 && (
+      <FilterChips filters={filters} setFilters={setFilters} projects={dashboardProjects} />
+      {mailSummary?.connected && (
+        <section className="card sp dashboard-mail-summary">
+          <div className="row" style={{ justifyContent: 'space-between', gap: 12 }}>
+            <div>
+              <h2><Icon name="mail" size={17} /> Gmail inbox</h2>
+              <p className="mu">{mailSummary.unreadCount} unread · {mailSummary.email}</p>
+            </div>
+            <Button onClick={() => setPage('mails')}>
+              Open Mails <Icon name="arrow-right" size={14} />
+            </Button>
+          </div>
+          {mailSummary.messages.length ? (
+            <div className="dashboard-mail-list">
+              {mailSummary.messages.map((message) => (
+                <button className={`dashboard-mail-row ${message.unread ? 'unread' : ''}`} key={message.id} onClick={() => setPage('mails')} type="button">
+                  <span className="dashboard-mail-copy">
+                    <b>{message.from}</b>
+                    <strong>{message.subject}</strong>
+                    <span>{message.snippet}</span>
+                  </span>
+                  <time>{new Date(message.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</time>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="mu dashboard-mail-empty">No recent messages in your Gmail inbox.</p>
+          )}
+        </section>
+      )}
+      {overdueCount > 0 && (
         <button
           className="alert"
           onClick={() => setFilters({ ...filters, status: filters.status === 'Overdue' ? '' : 'Overdue' })}
@@ -87,26 +155,26 @@ export function DashboardPage({
             <Icon name="alert-triangle" size={18} />
           </span>
           <span className="alert-text">
-            <b>{overdue.length} overdue task(s)</b> — {overdue.slice(0, 4).map((task) => task.title).join(' | ')}
+            <b>{overdueCount} overdue task(s)</b> — {overdue.slice(0, 4).map((task) => task.title).join(' | ')}
           </span>
         </button>
       )}
       <div className="grid k4 dashboard-kpis">
-        <Metric label="Tasks managed" value={scopedTasks.length} detail={`${scopedTasks.length - completed.length} open`} />
+        <Metric label="Tasks managed" value={taskCount} detail={`${dashboardSummary?.totals.open ?? taskCount - completedCount} open`} />
         <Metric
           label="Completed"
-          value={completed.length}
-          detail={`${scopedTasks.length ? Math.round((completed.length / scopedTasks.length) * 100) : 0}% of tasks`}
+          value={completedCount}
+          detail={`${taskCount ? Math.round((completedCount / taskCount) * 100) : 0}% of tasks`}
         />
         <Metric
           label="On-time rate"
-          value={`${completed.length ? Math.round((onTime.length / completed.length) * 100) : 0}%`}
-          detail={`${onTime.length} of ${completed.length} done`}
+          value={`${completedCount ? Math.round((onTimeCount / completedCount) * 100) : 0}%`}
+          detail={`${onTimeCount} of ${completedCount} done`}
         />
-        <Metric label="Overdue" value={overdue.length} detail={overdue.length ? 'Needs attention' : 'All on track'} />
+        <Metric label="Overdue" value={overdueCount} detail={overdueCount ? 'Needs attention' : 'All on track'} />
         <Metric
           label="Team KPI score"
-          value={Math.round(visibleKpiRows.reduce((sum, row) => sum + row.score, 0) / (visibleKpiRows.length || 1))}
+          value={dashboardSummary?.totals.teamKpiScore ?? Math.round(visibleKpiRows.reduce((sum, row) => sum + row.score, 0) / (visibleKpiRows.length || 1))}
           detail={`${visibleKpiRows.length} employee(s)`}
         />
       </div>
@@ -114,7 +182,7 @@ export function DashboardPage({
         <div className="card">
           <h2>Status breakdown</h2>
           {STATUSES.map((status) => {
-            const count = scopedTasks.filter((task) => task.status === status).length
+            const count = dashboardSummary?.statusCounts?.[status] ?? scopedTasks.filter((task) => task.status === status).length
             return (
               <button
                 className="status-line"
@@ -182,7 +250,7 @@ export function DashboardPage({
           </Button>
         </div>
         <TaskTable
-          tasks={[...scopedTasks]
+          tasks={dashboardSummary?.recentTasks || [...scopedTasks]
             .sort((a, b) => (b.updated || b.doneAt || 0) - (a.updated || a.doneAt || 0))
             .slice(0, 10)}
           projects={projects}
@@ -203,4 +271,3 @@ export function DashboardPage({
 }
 
 export default DashboardPage
-

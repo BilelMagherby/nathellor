@@ -8,6 +8,7 @@ Taskflow management and CEO dashboard application for Natheelco Al Khaleej.
    ```bash
    npm install
    ```
+   This installs both the main frontend and the integrated Cash Bank Dashboard.
 
 2. Start the Node.js backend from a second terminal:
    ```powershell
@@ -26,6 +27,7 @@ Taskflow management and CEO dashboard application for Natheelco Al Khaleej.
    ```bash
    npm run build
    ```
+   The Cash Bank Dashboard is built under `/cash-bank/` and is opened from its sidebar button. Its deployable source is in `cash-bank-app`; the separate `Mrs noura` repository is left untouched.
 
 ## Roles & user PINs
 

@@ -20,7 +20,7 @@ import {
   hasFrontendRememberedSession,
   loadRoleUsers,
 } from './utils/session.js'
-import { isLate, endOf, normalize } from './utils/helpers.js'
+import { isLate, endOf, normalize, today } from './utils/helpers.js'
 import { request, api } from './services/api.js'
 
 // Dialog components
@@ -41,6 +41,7 @@ import { TeamPage } from './pages/Team/TeamPage.jsx'
 import { HRPage } from './pages/HR/HRPage.jsx'
 import { KPIAnalyticsPage } from './pages/KPIAnalytics/KPIAnalyticsPage.jsx'
 import { MeetingsPage } from './pages/Meetings/MeetingsPage.jsx'
+import { MailsPage } from './pages/Mails/MailsPage.jsx'
 import { CalendarPage } from './pages/Calendar/CalendarPage.jsx'
 import { NatheelGulfPage } from './pages/NatheelGulf/NatheelGulfPage.jsx'
 import { FoodicsManagementPage } from './pages/FoodicsManagement/FoodicsManagementPage.jsx'
@@ -73,6 +74,8 @@ export function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [tasks, setTasks] = useState([])
   const [history, setHistory] = useState([])
+  const [employeeReviews, setEmployeeReviews] = useState([])
+  const [ceoDashboardSummary, setCeoDashboardSummary] = useState(null)
   const [meetings, setMeetings] = useState([])
   const [config, setConfig] = useState(DEFAULT_CONFIG)
   const [clickup, setClickup] = useState({ configured: false, tasks: [], members: [], workspaces: [], spaces: [] })
@@ -88,6 +91,8 @@ export function App() {
   const [newColor, setNewColor] = useState('#2563eb')
   const [calendarDate, setCalendarDate] = useState(new Date())
   const [calendarEventDetail, setCalendarEventDetail] = useState(null)
+  const [seenReminderIds, setSeenReminderIds] = useState([])
+  const [currentDate, setCurrentDate] = useState(today)
   const [calendarPerson, setCalendarPerson] = useState(() => {
     try {
       return localStorage.getItem('who') || ''
@@ -95,14 +100,18 @@ export function App() {
       return ''
     }
   })
-  const [seenReminderIds, setSeenReminderIds] = useState([])
-  const [reminders, setReminders] = useState([])
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [clickupStatus, setClickupStatus] = useState('Connecting…')
   const [lastSync, setLastSync] = useState(0)
   const [taskMode, setTaskMode] = useState('list')
   const [minutesBusy, setMinutesBusy] = useState(false)
   const configDraftDirty = useRef(false)
+  const ceoDashboardRequestVersion = useRef(0)
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setCurrentDate(today()), 60_000)
+    return () => window.clearInterval(interval)
+  }, [])
 
   const showError = useCallback((message) => {
     setError(message)
@@ -119,18 +128,42 @@ export function App() {
     auth?.activeUser?.isAdmin || taskDataPermissions.some((permission) => auth?.activeUser?.permissions?.includes(permission))
   const canReadMeetings =
     auth?.activeUser?.isAdmin || ['meet', 'zoom', 'cal'].some((permission) => auth?.activeUser?.permissions?.includes(permission))
+  const canReadCeoDashboard = auth?.activeUser?.isAdmin || auth?.activeUser?.permissions?.includes('dash')
+  const isAdmin = Boolean(auth?.activeUser?.isAdmin)
   const canReadGulf = auth?.activeUser?.isAdmin || auth?.activeUser?.permissions?.includes('gulf')
 
   const refresh = useCallback(async () => {
-    const [taskRows, historyRows, meetingRows, configRow] = await Promise.all([
+    const dashboardQuery = new URLSearchParams({
+      project: filters.project,
+      assignee: filters.assignee,
+      status: filters.status,
+    })
+    const dashboardRequestVersion = ++ceoDashboardRequestVersion.current
+    if (canReadCeoDashboard && !auth?.frontendOnly) {
+      request(`/api/dashboard/ceo?${dashboardQuery}`)
+        .then((summary) => {
+          if (dashboardRequestVersion === ceoDashboardRequestVersion.current) setCeoDashboardSummary(summary)
+        })
+        .catch((cause) => {
+          if (dashboardRequestVersion === ceoDashboardRequestVersion.current) {
+            setCeoDashboardSummary(null)
+            showError(`Could not load CEO dashboard summary: ${cause.message}`)
+          }
+        })
+    } else {
+      setCeoDashboardSummary(null)
+    }
+    const [taskRows, historyRows, meetingRows, configRow, employeeReviewRows] = await Promise.all([
       canReadTaskData ? api.list('tasks') : Promise.resolve([]),
       canReadTaskData ? api.list('history') : Promise.resolve([]),
       canReadMeetings ? api.list('meetings') : Promise.resolve([]),
       api.get('config/main'),
+      isAdmin ? api.list('kpiReviews') : Promise.resolve([]),
     ])
     setTasks(taskRows.map((row) => ({ id: row.id, ...row.data })))
     setHistory(historyRows.map((row) => ({ id: row.id, ...row.data })))
     setMeetings(meetingRows.map((row) => ({ id: row.id, ...row.data })))
+    setEmployeeReviews(employeeReviewRows)
     if (!configDraftDirty.current) {
       const data = configRow.exists ? configRow.data : {}
       setConfig({
@@ -143,7 +176,19 @@ export function App() {
         team: data.team || DEFAULT_CONFIG.team,
       })
     }
-  }, [auth?.activeUser?.id, auth?.activeUser?.isAdmin, auth?.activeUser?.permissions, canReadMeetings, canReadTaskData])
+  }, [
+    auth?.activeUser?.id,
+    auth?.activeUser?.permissions,
+    auth?.frontendOnly,
+    canReadCeoDashboard,
+    canReadMeetings,
+    canReadTaskData,
+    filters.assignee,
+    filters.project,
+    filters.status,
+    isAdmin,
+    showError,
+  ])
 
   const syncClickup = useCallback(async (force = false) => {
     try {
@@ -158,6 +203,35 @@ export function App() {
       return null
     }
   }, [])
+
+  async function addEmployeeReview(data) {
+    const id = `review-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+    try {
+      const saved = await api.put(`kpiReviews/${id}`, {
+        ...data,
+        author: auth.activeUser.name,
+        createdAt: new Date().toISOString(),
+      })
+      setEmployeeReviews((current) => [...current, { id: saved.id, data: saved.data }])
+      showToast('Employee review saved.')
+      return true
+    } catch (cause) {
+      showError(`Could not save employee review: ${cause.message}`)
+      return false
+    }
+  }
+
+  async function deleteEmployeeReview(review) {
+    try {
+      await api.remove(`kpiReviews/${review.id}`)
+      setEmployeeReviews((current) => current.filter((entry) => entry.id !== review.id))
+      showToast('Employee review deleted.')
+      return true
+    } catch (cause) {
+      showError(`Could not delete employee review: ${cause.message}`)
+      return false
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -486,21 +560,38 @@ export function App() {
   }, [config.projects, tasks, history])
 
   const cuTasks = useMemo(
-    () =>
-      (clickup.tasks || []).map((task) => {
+    () => {
+      const membersById = new Map(
+        (clickup.members || []).map((member) => [String(member.id), member.name])
+      )
+      return (clickup.tasks || []).map((task) => {
         const rawStatus = typeof task.status === 'string' ? task.status : task.status?.status || ''
         const status = rawStatus.toLowerCase()
         const type = task.status_type || task.status?.type || ''
         const priority = typeof task.priority === 'string' ? task.priority : task.priority?.priority
         const done = type === 'done' || type === 'closed' || (!type && /complete|closed|done/.test(status))
+        const assignees = (task.assignees || [])
+          .map(
+            (person) =>
+              membersById.get(String(person.id)) || person.username || person.email || person.name || String(person.id || '')
+          )
+          .filter(Boolean)
+        const clickupProject = [task.list?.name, task.folder?.name, task.space?.name]
+          .map((name) =>
+            projects.find(
+              (project) => normalize(project.name) === normalize(name) || normalize(project.id) === normalize(name)
+            )
+          )
+          .find(Boolean)
         return {
           id: `cu:${task.id}`,
           externalId: task.id,
           url: task.url,
           title: task.name,
-          project: task.list?.name || 'ClickUp',
-          assignee: task.assignees?.[0]?.username || '',
-          assignees: (task.assignees || []).map((person) => person.username),
+          description: task.description || task.text_content || '',
+          project: clickupProject?.id || task.list?.name || 'ClickUp',
+          assignee: assignees[0] || '',
+          assignees,
           status: done
             ? 'Done'
             : type === 'open' || status === 'to do' || status === 'open'
@@ -524,8 +615,9 @@ export function App() {
           demo: false,
           source: 'clickup',
         }
-      }),
-    [clickup.tasks]
+      })
+    },
+    [clickup.members, clickup.tasks, projects]
   )
 
   const historicalTasks = useMemo(() => {
@@ -581,48 +673,7 @@ export function App() {
     ]
   }, [config.credit, cuTasks, history, tasks])
 
-  const demoTasks = useMemo(() => {
-    if (cuTasks.length || tasks.length || history.length) return []
-    const data = [
-      ['Launch autumn menu photos', 'hajiss', 'Done', 'High', -6],
-      ['Barista training schedule', 'hajiss', 'Done', 'Normal', -3],
-      ['Fix POS receipt printer', 'hajiss', 'In Progress', 'Urgent', -2],
-      ['Weekly supplier order', 'hajiss', 'To Do', 'Normal', 0],
-      ['Instagram reels – October', 'hajiss', 'Review', 'High', 1],
-      ['Oven maintenance visit', 'odin', 'Done', 'High', -9],
-      ['New pide recipe costing', 'odin', 'In Progress', 'Normal', 3],
-      ['Delivery app menu update', 'odin', 'To Do', 'High', -1],
-      ['Staff rota November', 'odin', 'Done', 'Normal', -4],
-      ['Ghalia lookbook shoot', 'ghalia', 'In Progress', 'Urgent', 2],
-      ['Website product upload', 'ghalia', 'Done', 'Normal', -2],
-      ['Influencer outreach list', 'ghalia', 'To Do', 'Low', 6],
-      ['Client logo – Al Noor', 'danny', 'Review', 'High', 0],
-      ['Brand guideline PDF', 'danny', 'Done', 'Normal', -12],
-      ['Packaging mockups', 'danny', 'To Do', 'Normal', 8],
-      ['Quarterly KPI review', 'nathilco', 'To Do', 'Urgent', 4],
-      ['Budget approval Q4', 'nathilco', 'Done', 'High', -15],
-      ['Hire part-time cashier', 'nathilco', 'In Progress', 'Normal', 5],
-    ]
-    return data.map(([title, project, status, priority, offset], index) => {
-      const due = new Date()
-      due.setDate(due.getDate() + offset)
-      return {
-        id: `demo${index}`,
-        title,
-        project,
-        status,
-        priority,
-        assignee: '',
-        assignees: [],
-        due: due.toLocaleDateString('en-CA'),
-        doneAt: status === 'Done' ? Date.now() - Math.abs(offset || 1) * 86_400_000 : 0,
-        demo: true,
-        tags: [],
-      }
-    })
-  }, [cuTasks.length, tasks.length, history.length])
-
-  const allTasks = historicalTasks.length ? historicalTasks : demoTasks
+  const allTasks = historicalTasks
   const people = useMemo(
     () => [
       ...new Set([
@@ -634,6 +685,18 @@ export function App() {
     ],
     [allTasks, clickup.members, config.team]
   )
+  const kpiPeople = useMemo(() => {
+    const workers = new Map()
+    ;[
+      ...(clickup.members || []).map((member) => member.name),
+      ...allTasks.flatMap((task) => task.assignees || (task.assignee ? [task.assignee] : [])),
+    ].forEach((name) => {
+      const label = String(name || '').trim()
+      const key = normalize(label)
+      if (key && key !== normalize('CEO') && !workers.has(key)) workers.set(key, label)
+    })
+    return [...workers.values()].sort((a, b) => a.localeCompare(b))
+  }, [allTasks, clickup.members])
 
   const projectScope = useCallback(
     (projectId, source = allTasks) =>
@@ -652,7 +715,9 @@ export function App() {
   const scopedTasks = useMemo(
     () =>
       projectScope(filters.project).filter((task) => {
-        const matchesPerson = !filters.assignee || (task.assignees || [task.assignee]).includes(filters.assignee)
+        const matchesPerson =
+          !filters.assignee ||
+          (task.assignees || [task.assignee]).some((name) => normalize(name) === normalize(filters.assignee))
         const matchesStatus =
           !filters.status || (filters.status === 'Overdue' ? isLate(task) : task.status === filters.status)
         return matchesPerson && matchesStatus
@@ -660,15 +725,29 @@ export function App() {
     [filters.assignee, filters.project, filters.status, projectScope]
   )
 
+  const teamTasks = useMemo(
+    () =>
+      projectScope(filters.project).filter((task) =>
+        !filters.status || (filters.status === 'Overdue' ? isLate(task) : task.status === filters.status)
+      ),
+    [filters.project, filters.status, projectScope]
+  )
+
   const kpiRows = useMemo(() => {
-    const staff = people.filter((person) => person !== 'CEO')
+    const staff = kpiPeople
     const busiest = Math.max(
       1,
-      ...staff.map((person) => scopedTasks.filter((task) => (task.assignees || [task.assignee]).includes(person)).length)
+      ...staff.map((person) =>
+        teamTasks.filter((task) =>
+          (task.assignees || [task.assignee]).some((name) => normalize(name) === normalize(person))
+        ).length
+      )
     )
     return staff
       .map((name) => {
-        const owned = scopedTasks.filter((task) => (task.assignees || [task.assignee]).includes(name))
+        const owned = teamTasks.filter((task) =>
+          (task.assignees || [task.assignee]).some((assignee) => normalize(assignee) === normalize(name))
+        )
         const completed = owned.filter((task) => task.status === 'Done')
         const onTime = completed.filter((task) => !task.due || task.doneAt <= endOf(task.due)).length
         const overdue = owned.filter(isLate).length
@@ -695,7 +774,7 @@ export function App() {
         }
       })
       .sort((a, b) => b.score - a.score || b.total - a.total)
-  }, [config.target, config.w, people, scopedTasks])
+  }, [config.target, config.w, kpiPeople, teamTasks])
 
   const saveConfig = useCallback(async (updated) => {
     await api.put('config/main', updated)
@@ -820,69 +899,18 @@ export function App() {
   }
 
   const realMeetings = useMemo(() => [...meetings].sort((a, b) => a.start - b.start), [meetings])
-  const sampleMeetings = useMemo(() => {
-    if (realMeetings.length) return []
-    const week = new Date()
-    week.setDate(week.getDate() - ((week.getDay() + 6) % 7))
-    return [
-      {
-        id: 'demo-meet-1',
-        demo: true,
-        platform: 'google',
-        title: 'Weekly leadership sync',
-        project: 'nathilco',
-        start: week.getTime() + 2 * 86_400_000,
-        duration: 45,
-        reminder: 30,
-        status: 'scheduled',
-        attendees: [],
-        joinUrl: 'https://meet.google.com/new',
-        summary: '',
-        notes: '',
-        decisions: [],
-        actions: [],
-      },
-      {
-        id: 'demo-meet-2',
-        demo: true,
-        platform: 'zoom',
-        title: 'Investor update call',
-        project: 'nathilco',
-        start: week.getTime() + 8 * 86_400_000,
-        duration: 60,
-        reminder: 30,
-        status: 'scheduled',
-        attendees: [],
-        joinUrl: 'https://zoom.us/start/videomeeting',
-        summary: '',
-        notes: '',
-        decisions: [],
-        actions: [],
-      },
-    ]
-  }, [realMeetings])
-  const allMeetings = realMeetings.length ? realMeetings : sampleMeetings
+  const allMeetings = realMeetings
 
-  useEffect(() => {
-    if (!auth?.authed || auth.frontendOnly) return undefined
-    const tick = () => {
-      const seen = new Set(seenReminderIds)
-      const now = Date.now()
-      const due = realMeetings.filter(
-        (meeting) =>
-          !seen.has(meeting.id) &&
-          meeting.status === 'scheduled' &&
-          meeting.start - (meeting.reminder ?? 30) * 60_000 <= now &&
-          meeting.start > now - 60_000
-      )
-      if (!due.length) return
-      due.forEach((meeting) => seen.add(meeting.id))
-      setSeenReminderIds([...seen].slice(-500))
-      setReminders((current) => [...due, ...current])
-    }
-    const interval = window.setInterval(tick, 30_000)
-    return () => window.clearInterval(interval)
-  }, [auth?.authed, auth?.frontendOnly, realMeetings, seenReminderIds])
+  const reminders = useMemo(() => {
+    return [
+      ...allMeetings
+        .filter((meeting) => new Date(meeting.start).toLocaleDateString('en-CA') === currentDate)
+        .map((item) => ({ kind: 'meeting', item, time: item.start })),
+      ...allTasks
+        .filter((task) => task.due === currentDate)
+        .map((item) => ({ kind: 'task', item, time: 0 })),
+    ].sort((a, b) => a.time - b.time)
+  }, [allMeetings, allTasks, currentDate])
 
   if (!auth)
     return (
@@ -1072,7 +1100,9 @@ export function App() {
       return (
         <DashboardPage
           allMeetings={allMeetings}
+          canViewMails={canAccessPage('mails')}
           clickup={clickup}
+          dashboardSummary={ceoDashboardSummary}
           filters={filters}
           kpiRows={kpiRows}
           notificationsOpen={notificationsOpen}
@@ -1243,16 +1273,25 @@ export function App() {
       return (
         <KPIAnalyticsPage
           config={config}
+          employeeReviews={employeeReviews}
           filters={filters}
+          isAdmin={isAdmin && !auth.frontendOnly}
           members={clickup.members}
+          onAddEmployeeReview={addEmployeeReview}
+          onDeleteEmployeeReview={deleteEmployeeReview}
           onRemove={removeTask}
           onSelectEmployee={(name) =>
-            setFilters((current) => ({ ...current, assignee: current.assignee === name ? '' : name }))
+            setFilters((current) => ({
+              ...current,
+              assignee: normalize(current.assignee) === normalize(name) ? '' : name,
+            }))
           }
           onUpdate={updateTask}
-          people={people}
+          people={kpiPeople}
           projects={projects}
           rows={kpiRows}
+          clickupStatus={clickupStatus}
+          lastSync={lastSync}
           setFilters={setFilters}
           tasks={scopedTasks}
         />
@@ -1272,6 +1311,8 @@ export function App() {
         />
       )
     }
+
+    if (page === 'mails') return <MailsPage />
 
     return (
       <CalendarPage
@@ -1309,6 +1350,7 @@ export function App() {
         pageTitle={pageTitle}
         projects={projects}
         reminders={reminders}
+        setCalendarEventDetail={setCalendarEventDetail}
         setError={setError}
         setFilters={setFilters}
         setFoodicsNavOpen={setFoodicsNavOpen}
@@ -1317,12 +1359,10 @@ export function App() {
         setFoodicsSection={setFoodicsSection}
         setGulfActiveSection={setGulfActiveSection}
         setGulfSelectedNode={setGulfSelectedNode}
-        setMeetingDetail={setMeetingDetail}
         setMobileMenuOpen={setMobileMenuOpen}
         setNatheelGulfOpen={setNatheelGulfOpen}
         setNotificationsOpen={setNotificationsOpen}
         setPage={setPage}
-        setReminders={setReminders}
         syncClickupNow={syncClickupNow}
         toast={toast}
         visiblePages={visiblePages}

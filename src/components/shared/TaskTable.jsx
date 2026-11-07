@@ -3,7 +3,7 @@ import { Avatar } from '../ui/Avatar.jsx'
 import { STATUSES, PRIORITY_COLORS } from '../../utils/constants.js'
 import { isLate, projectName } from '../../utils/helpers.js'
 
-export function TaskTable({ tasks = [], projects = [], members = [], onUpdate, onRemove, variant = '' }) {
+export function TaskTable({ tasks = [], projects = [], members = [], onUpdate, onRemove, variant = '', showClickupLocation = false }) {
   if (!tasks.length) return <p className="mu">No tasks match these filters.</p>
   return (
     <div aria-label="Task list. Scroll horizontally to view all columns" className={`scroll${variant ? ` task-list-${variant}` : ''}`} role="region" tabIndex={0}>
@@ -16,6 +16,7 @@ export function TaskTable({ tasks = [], projects = [], members = [], onUpdate, o
             <th>Due</th>
             <th>Priority</th>
             <th>Project</th>
+            {showClickupLocation && <th>ClickUp location</th>}
             <th />
           </tr>
         </thead>
@@ -54,16 +55,31 @@ export function TaskTable({ tasks = [], projects = [], members = [], onUpdate, o
                 )}
               </td>
               <td>
-                {task.assignees?.map((name) => (
+                {(task.assignees?.length ? task.assignees : task.assignee ? [task.assignee] : []).map((name) => (
                   <span key={name}>
                     <Avatar members={members} name={name} />
                     {name}
                   </span>
-                )) || task.assignee || '—'}
+                ))}
+                {!task.assignees?.length && !task.assignee && '—'}
               </td>
               <td className={isLate(task) ? 'late' : ''}>{task.due || '—'}</td>
               <td style={{ color: PRIORITY_COLORS[task.priority] }}>{task.priority || '—'}</td>
               <td>{projectName(projects, task.project)}</td>
+              {showClickupLocation && (
+                <td>
+                  {[task.space, task.folder, task.list].filter(Boolean).join(' / ') || '—'}
+                  {task.tags?.length > 0 && <small className="mu">Tags: {task.tags.join(', ')}</small>}
+                  {task.description && <small className="mu">{task.description}</small>}
+                  {(task.created || task.updated) && (
+                    <small className="mu">
+                      {task.created ? `Created ${new Date(task.created).toLocaleDateString()}` : ''}
+                      {task.created && task.updated ? ' · ' : ''}
+                      {task.updated ? `Updated ${new Date(task.updated).toLocaleDateString()}` : ''}
+                    </small>
+                  )}
+                </td>
+              )}
               <td>
                 {task.demo ? (
                   <span className="pill">Sample</span>
@@ -84,4 +100,3 @@ export function TaskTable({ tasks = [], projects = [], members = [], onUpdate, o
     </div>
   )
 }
-

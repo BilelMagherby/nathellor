@@ -1,3 +1,5 @@
+import { upload } from '@vercel/blob/client'
+
 export async function request(path, init) {
   const base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
   const response = await fetch(`${base}${path}`, { cache: 'no-store', ...init })
@@ -23,6 +25,19 @@ export const api = {
     }),
   remove: (path) => request(`/api/docs?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
   uploadFile: async (file, scope) => {
+    if (import.meta.env.VITE_VERCEL_BLOB_UPLOADS) {
+      const id = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(18)))
+        .map((value) => value.toString(16).padStart(2, '0'))
+        .join('')
+      await upload(id, file, {
+        access: 'private',
+        contentType: file.type || 'application/octet-stream',
+        handleUploadUrl: `/api/files?scope=${encodeURIComponent(scope)}`,
+        clientPayload: JSON.stringify({ id, name: file.name, scope }),
+        multipart: file.size > 5 * 1024 * 1024,
+      })
+      return { id, url: `/api/files/${encodeURIComponent(id)}`, name: file.name, size: file.size }
+    }
     const formData = new FormData()
     formData.append('file', file)
     return request(`/api/files?scope=${encodeURIComponent(scope)}`, { method: 'POST', body: formData })

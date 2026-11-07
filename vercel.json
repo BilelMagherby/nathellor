@@ -1,6 +1,14 @@
 {
   "rewrites": [
     {
+      "source": "/cash-bank",
+      "destination": "/cash-bank/index.html"
+    },
+    {
+      "source": "/cash-bank/(.*)",
+      "destination": "/cash-bank/index.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

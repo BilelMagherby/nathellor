@@ -536,6 +536,29 @@ export function Icon({ name, size = 18, className = '', color = 'currentColor', 
         </svg>
       )
 
+    case 'inbox':
+      return (
+        <svg {...common}>
+          <path d="M4 4h16l2 11v4a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-4L4 4Z" />
+          <path d="M2 14h5l2 3h6l2-3h5" />
+        </svg>
+      )
+
+    case 'star':
+      return (
+        <svg {...common}>
+          <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z" />
+        </svg>
+      )
+
+    case 'tag':
+      return (
+        <svg {...common}>
+          <path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V4h9l8.6 6.6a2 2 0 0 1 0 2.8Z" />
+          <circle cx="7.5" cy="8.5" r="1" />
+        </svg>
+      )
+
     case 'edit':
       return (
         <svg {...common}>
